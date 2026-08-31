@@ -1,0 +1,26 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+class FlutterExtension {
+    def compileSdkVersion = 34
+    def minSdkVersion = 21
+    def targetSdkVersion = 34
+}
+rootProject.extensions.create("flutter", FlutterExtension)
+
+// استخدم المسار الافتراضي للـ build directory
+// rootProject.buildDir = "C:/temp_flutter_build"
+// subprojects {
+//     project.buildDir = "${rootProject.buildDir}/${project.name}"
+// }
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

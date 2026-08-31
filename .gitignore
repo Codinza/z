@@ -1,0 +1,24 @@
+# === Backend ===
+backend/node_modules/
+backend/.env
+
+# === Flutter ===
+flutter_app/build/
+flutter_app/.dart_tool/
+flutter_app/.packages
+flutter_app/.pub-cache/
+flutter_app/.idea/
+flutter_app/*.iml
+
+# JDK files (too large for GitHub - 100MB+ limit)
+flutter_app/jdk17-fast/
+flutter_app/jdk17-fast.zip
+flutter_app/jdk17.zip
+
+# Build logs
+flutter_app/*.log
+
+# === General ===
+.DS_Store
+Thumbs.db
+*.log

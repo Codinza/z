@@ -1,0 +1,40 @@
+name: rideflow_app
+publish_to: 'none'
+description: منصة الليموزين والشحن الموحدة - RideFlow Limousine & Shipping Platform
+version: 1.0.0+2
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.0
+  dio: ^5.7.0
+  socket_io_client: ^3.0.0
+  geolocator: ^13.0.0
+  flutter_map: ^7.0.2
+  google_maps_flutter: ^2.10.1
+  latlong2: ^0.9.1
+  http: ^1.2.2
+  shared_preferences: ^2.2.0
+  intl: ^0.19.0
+  url_launcher: ^6.3.0
+  flutter_local_notifications: 17.1.2
+  flutter_map_cancellable_tile_provider: ^3.0.2
+  image_picker: ^1.1.2
+  webview_flutter: ^4.10.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "../logo.jpeg"
+
+flutter:
+  uses-material-design: true
