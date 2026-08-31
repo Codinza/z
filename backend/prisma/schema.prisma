@@ -1,0 +1,237 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  email     String?  @unique
+  password  String
+  role      String   @default("customer")  // customer, driver, admin, company, super_admin
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  driver       Driver?
+  company      Company?
+  trips        Trip[]
+  orders       Order[]
+  ratings      Rating[]
+  payments     Payment[]
+  notifications Notification[]
+  priceOffers  PriceOffer[]
+}
+
+model Driver {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  carId           String?  @unique
+  status          String   @default("pending") // pending, approved, rejected
+  licensePhotoUrl String?
+  carPhotoUrl     String?
+  walletBalance   Float    @default(0.0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id])
+  car        Car?
+  trips      Trip[]
+  locations  DriverLocation[]
+  ratings    Rating[]
+}
+
+model Car {
+  id          String   @id @default(cuid())
+  driverId    String   @unique
+  plateNumber String   @unique
+  model       String
+  color       String
+  year        Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  driver      Driver   @relation(fields: [driverId], references: [id])
+}
+
+model Trip {
+  id              String   @id @default(cuid())
+  userId          String
+  driverId        String?
+  pickupAddress   String
+  dropoffAddress  String
+  pickupLat       Float
+  pickupLng       Float
+  dropoffLat      Float
+  dropoffLng      Float
+  status          String   @default("requested")
+  fareEstimate    Float
+  finalFare       Float?
+  distanceKm      Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id])
+  driver          Driver?  @relation(fields: [driverId], references: [id])
+  payment         Payment?
+}
+
+model Company {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  companyType     String   // LIMOUSINE, SHIPPING
+  companyName     String
+  companyPhone    String
+  address         String
+  status          String   @default("pending")  // pending, approved, rejected, active
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id])
+  orders          Order[]
+  employees       CompanyEmployee[]
+  priceOffers     PriceOffer[]
+  notifications   Notification[]
+}
+
+model CompanyEmployee {
+  id              String   @id @default(cuid())
+  companyId       String
+  name            String
+  phone           String   @unique
+  email           String?  @unique
+  password        String
+  role            String   @default("staff")  // staff, manager
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id                      String   @id @default(cuid())
+  customerId              String
+  companyId               String?
+  serviceType             String   // LIMOUSINE, SHIPPING
+  status                  String   @default("NEW")  // NEW, COMPANY_REVIEWING, COMPANY_ACCEPTED, COMPANY_REJECTED, PRICE_SENT, CUSTOMER_APPROVED, CUSTOMER_REJECTED, CONFIRMED, COMPLETED, CANCELLED
+  
+  // Limousine specific
+  limousinePickupAddress  String?
+  limousinePickupLat      Float?
+  limousinePickupLng      Float?
+  limousineDropoffAddress String?
+  limousineDropoffLat     Float?
+  limousineDropoffLng     Float?
+  limousinePassengerCount Int?
+  limousineDateTime       DateTime?
+  limousineNotes          String?
+  
+  // Shipping specific
+  shippingPickupAddress   String?
+  shippingPickupLat       Float?
+  shippingPickupLng       Float?
+  shippingDropoffAddress  String?
+  shippingDropoffLat      Float?
+  shippingDropoffLng      Float?
+  shippingDetails         String?
+  shippingType            String?  // box, envelope, etc
+  shippingSize            String?  // small, medium, large
+  shippingImageBase64     String?  @db.Text
+  shippingDateTime        DateTime?
+  shippingNotes           String?
+  
+  // Pricing
+  customerOfferPrice      Float
+  companyOfferPrice       Float?
+  finalPrice              Float?
+  
+  // Customer contact visibility
+  customerContactVisible  Boolean  @default(false)  // false until customer approves price
+  rejectionReason         String?
+  
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  customer                User     @relation(fields: [customerId], references: [id])
+  company                 Company? @relation(fields: [companyId], references: [id])
+  priceOffers             PriceOffer[]
+  payment                 Payment?
+  ratings                 Rating[]
+}
+
+model PriceOffer {
+  id                String   @id @default(cuid())
+  orderId           String
+  customerId        String
+  companyId         String
+  offeredPrice      Float
+  sentBy            String   // CUSTOMER, COMPANY
+  status            String   @default("PENDING")  // PENDING, ACCEPTED, REJECTED
+  rejectionReason   String?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  order             Order    @relation(fields: [orderId], references: [id])
+  customer          User     @relation(fields: [customerId], references: [id])
+  company           Company  @relation(fields: [companyId], references: [id])
+}
+
+model DriverLocation {
+  id         String   @id @default(cuid())
+  driverId   String
+  lat        Float
+  lng        Float
+  updatedAt  DateTime @updatedAt
+
+  driver     Driver   @relation(fields: [driverId], references: [id])
+}
+
+model Rating {
+  id         String   @id @default(cuid())
+  orderId    String
+  userId     String
+  driverId   String?
+  score      Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  order      Order    @relation(fields: [orderId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+  driver     Driver?  @relation(fields: [driverId], references: [id])
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  orderId        String?  @unique
+  tripId         String?  @unique
+  userId         String
+  amount         Float
+  status         String   @default("pending")
+  paymentMethod  String   @default("cash") // cash, card, wallet
+  createdAt      DateTime @default(now())
+
+  order          Order?   @relation(fields: [orderId], references: [id])
+  trip           Trip?    @relation(fields: [tripId], references: [id])
+  user           User     @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String?
+  companyId  String?
+  title      String
+  body       String
+  type       String   @default("system")
+  orderId    String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id])
+  company    Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}

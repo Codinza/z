@@ -1,0 +1,52 @@
+import { driverService } from '../services/driverService.js';
+
+class DriverController {
+  async listDrivers(_, res) {
+    return res.json({ drivers: await driverService.listDrivers() });
+  }
+
+  async getDriverById(req, res) {
+    const driver = await driverService.getDriverById(req.params.id);
+    if (!driver) {
+      return res.status(404).json({ message: 'Driver not found' });
+    }
+    return res.json({ driver });
+  }
+  async getWallet(req, res) {
+    try {
+      const wallet = await driverService.getDriverWallet(req.params.id);
+      return res.json(wallet);
+    } catch (e) {
+      return res.status(400).json({ message: e.message });
+    }
+  }
+
+  async recharge(req, res) {
+    try {
+      const result = await driverService.rechargeWallet(req.params.id, req.body.amount);
+      return res.json(result);
+    } catch (e) {
+      return res.status(400).json({ message: e.message });
+    }
+  }
+
+  async createWalletCheckout(req, res) {
+    try {
+      const result = await driverService.createWalletCheckout(req.params.id, req.body.amount);
+      return res.status(201).json(result);
+    } catch (e) {
+      return res.status(400).json({ message: e.message });
+    }
+  }
+
+  async getHistory(req, res) {
+    try {
+      const history = await driverService.getDriverHistory(req.params.id);
+      return res.json({ history });
+    } catch (e) {
+      return res.status(400).json({ message: e.message });
+    }
+  }
+}
+
+export const driverController = new DriverController();
