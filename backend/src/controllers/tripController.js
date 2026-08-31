@@ -122,9 +122,28 @@ class TripController {
 
   async submitDriverOffer(req, res) {
     try {
-      const { driverId, offerAmount } = req.body;
-      const result = await tripService.submitDriverOffer(req.params.id, driverId, offerAmount);
+      const { driverId, offerAmount, driverName, driverPhone } = req.body;
+      const result = await tripService.submitDriverOffer(req.params.id, driverId, offerAmount, driverName, driverPhone);
       return res.status(200).json({ message: 'Driver offer submitted', ...result });
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+  }
+
+  async getTripOffers(req, res) {
+    try {
+      const offers = await tripService.getTripOffers(req.params.id);
+      return res.status(200).json({ offers });
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+  }
+
+  async acceptDriverOffer(req, res) {
+    try {
+      const { driverId } = req.body;
+      const result = await tripService.acceptDriverOffer(req.params.id, driverId);
+      return res.status(200).json({ message: 'Offer accepted', ...result });
     } catch (error) {
       return res.status(400).json({ message: error.message });
     }

@@ -141,7 +141,7 @@ class CustomerServiceSelectionScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(18),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.blueGrey.withValues(alpha: 0.12),
+                          color: Colors.blueGrey.withOpacity(0.12),
                           blurRadius: 18,
                           offset: const Offset(0, 7),
                         ),
@@ -222,7 +222,7 @@ class _ServiceOption extends StatelessWidget {
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: color.withValues(alpha: 0.22),
+              color: color.withOpacity(0.22),
               blurRadius: 18,
               offset: const Offset(0, 10),
             ),
@@ -237,7 +237,7 @@ class _ServiceOption extends StatelessWidget {
                   width: 58,
                   height: 58,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.18),
+                    color: Colors.white.withOpacity(0.18),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(icon, color: Colors.white, size: 31),
@@ -260,7 +260,7 @@ class _ServiceOption extends StatelessWidget {
             Text(
               subtitle,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.88),
+                color: Colors.white.withOpacity(0.88),
                 fontSize: 15,
                 height: 1.35,
               ),

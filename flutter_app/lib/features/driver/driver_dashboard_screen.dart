@@ -546,7 +546,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
-                        BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4, offset: const Offset(0, 2)),
+                        BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2)),
                       ],
                     ),
                     child: ClipRRect(
@@ -577,7 +577,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                     LatLng(trip['pickupLat'], trip['pickupLng']),
                                     LatLng(trip['dropoffLat'], trip['dropoffLng']),
                                   ],
-                                  color: Colors.blue.withValues(alpha: 0.7),
+                                  color: Colors.blue.withOpacity(0.7),
                                   strokeWidth: 3.0,
                                   pattern: StrokePattern.dashed(segments: const [10.0, 10.0]),
                                 ),

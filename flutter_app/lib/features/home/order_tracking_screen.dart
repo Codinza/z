@@ -365,10 +365,10 @@ class _TrackingPanel extends StatelessWidget {
                   margin: const EdgeInsets.only(bottom: 6),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: isBest ? color.withValues(alpha: 0.1) : Colors.grey.shade50,
+                    color: isBest ? color.withOpacity(0.1) : Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                        color: isBest ? color.withValues(alpha: 0.35) : Colors.grey.shade200),
+                        color: isBest ? color.withOpacity(0.35) : Colors.grey.shade200),
                   ),
                   child: Row(
                     children: [

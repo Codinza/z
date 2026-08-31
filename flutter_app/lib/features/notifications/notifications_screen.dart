@@ -91,7 +91,7 @@ class NotificationsScreenState extends State<NotificationsScreen> {
                         ),
                       ],
                     ),
-                    tileColor: notif.isRead ? Colors.transparent : Colors.blue.withValues(alpha: 0.05),
+                    tileColor: notif.isRead ? Colors.transparent : Colors.blue.withOpacity(0.05),
                     onTap: () => _markAsRead(notif, index),
                   );
                 },

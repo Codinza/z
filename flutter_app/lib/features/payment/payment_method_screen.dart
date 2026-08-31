@@ -142,7 +142,7 @@ class PaymentMethodScreenState extends State<PaymentMethodScreen> {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withValues(alpha: 0.1) : Colors.white,
+          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.white,
           border: Border.all(color: isSelected ? Colors.blue : Colors.grey.shade300, width: 2),
           borderRadius: BorderRadius.circular(10),
         ),

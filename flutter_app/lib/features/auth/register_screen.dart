@@ -100,7 +100,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
-                          color: _selectedRole == 'customer' ? Colors.blue.withValues(alpha: 0.1) : Colors.transparent,
+                          color: _selectedRole == 'customer' ? Colors.blue.withOpacity(0.1) : Colors.transparent,
                           border: Border.all(
                             color: _selectedRole == 'customer' ? Colors.blue : Colors.grey,
                             width: 2,
@@ -120,7 +120,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
-                          color: _selectedRole == 'driver' ? Colors.blue.withValues(alpha: 0.1) : Colors.transparent,
+                          color: _selectedRole == 'driver' ? Colors.blue.withOpacity(0.1) : Colors.transparent,
                           border: Border.all(
                             color: _selectedRole == 'driver' ? Colors.blue : Colors.grey,
                             width: 2,

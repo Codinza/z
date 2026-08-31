@@ -388,9 +388,25 @@ class TripService {
     return ride;
   }
 
-  async submitDriverOffer(rideId, driverId, offerAmount) {
+  async submitDriverOffer(rideId, driverId, offerAmount, driverName, driverPhone) {
     const ride = rides.get(rideId);
     if (!ride) throw new Error('Ride not found');
+    if (ride.status !== 'pending') throw new Error('This ride is no longer accepting offers');
+
+    // Check if driver already has an active trip - prevent offering while on a ride
+    const allRides = Array.from(rides.values());
+    const activeTrip = allRides.find(r => 
+      r.driverId === driverId && 
+      ['accepted', 'driver_arriving', 'driver_arrived', 'started'].includes(r.status)
+    );
+    if (activeTrip) {
+      throw new Error('You already have an active trip. Complete it before sending new offers.');
+    }
+
+    // Check if driver already sent an offer for this ride
+    if (ride.offers && ride.offers.some(o => o.driverId === driverId)) {
+      throw new Error('You already sent an offer for this ride.');
+    }
     
     // Check wallet
     try {
@@ -410,7 +426,10 @@ class TripService {
 
     const offer = {
       driverId,
+      driverName: driverName || 'سائق',
+      driverPhone: driverPhone || '',
       offerAmount,
+      status: 'pending',
       timestamp: new Date().toISOString(),
     };
 
@@ -422,12 +441,82 @@ class TripService {
       io.emit('driver_offer', {
         rideId,
         driverId,
+        driverName: offer.driverName,
         offerAmount,
+        offersCount: ride.offers.length,
         timestamp: offer.timestamp,
       });
     }
 
     return { ride, offer };
+  }
+
+  // Get all offers for a specific trip (for customer to see)
+  async getTripOffers(rideId) {
+    const ride = rides.get(rideId);
+    if (!ride) throw new Error('Ride not found');
+    return ride.offers || [];
+  }
+
+  // Customer accepts a specific driver's offer
+  async acceptDriverOffer(rideId, driverId) {
+    const ride = rides.get(rideId);
+    if (!ride) throw new Error('Ride not found');
+    if (ride.status !== 'pending') throw new Error('This ride is no longer pending');
+
+    const offer = (ride.offers || []).find(o => o.driverId === driverId);
+    if (!offer) throw new Error('Offer not found from this driver');
+
+    // Accept this offer, reject all others
+    ride.offers.forEach(o => {
+      o.status = o.driverId === driverId ? 'accepted' : 'rejected';
+    });
+
+    ride.status = 'accepted';
+    ride.driverId = driverId;
+    ride.driverName = offer.driverName;
+    ride.driverPhone = offer.driverPhone;
+    ride.finalFare = offer.offerAmount;
+    ride.fareEstimate = offer.offerAmount;
+    ride.updatedAt = new Date().toISOString();
+
+    // Create assignment
+    const assignment = {
+      id: `assignment_${Date.now()}`,
+      rideRequestId: rideId,
+      driverId: driverId,
+      status: 'accepted',
+      acceptedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Notify the accepted driver
+    if (io) {
+      io.to(`driver:${driverId}`).emit('offer_accepted', {
+        rideId,
+        status: 'accepted',
+        driverId,
+        customerName: ride.userName,
+        customerPhone: ride.userPhone,
+        pickupAddress: ride.pickupAddress,
+        pickupLat: ride.pickupLat,
+        pickupLng: ride.pickupLng,
+        dropoffAddress: ride.dropoffAddress,
+        dropoffLat: ride.dropoffLat,
+        dropoffLng: ride.dropoffLng,
+        fareAmount: offer.offerAmount,
+      });
+
+      // Notify ALL clients that this trip is taken (so other drivers remove it)
+      io.emit('trip_status_changed', {
+        rideId,
+        status: 'accepted',
+        driverId,
+      });
+    }
+
+    return { ride, assignment, acceptedOffer: offer };
   }
 
   // ── Admin Stats ──────────────────────────────────────────────

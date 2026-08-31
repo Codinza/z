@@ -185,9 +185,9 @@ class _TripManagementScreenState extends State<TripManagementScreen> {
                 curve: Curves.easeInOut,
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.12),
+                  color: statusColor.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: statusColor.withValues(alpha: 0.4)),
+                  border: Border.all(color: statusColor.withOpacity(0.4)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,7 +202,7 @@ class _TripManagementScreenState extends State<TripManagementScreen> {
                         ),
                         Chip(
                           label: Text(_statusLabel(_currentStatus)),
-                          backgroundColor: statusColor.withValues(alpha: 0.18),
+                          backgroundColor: statusColor.withOpacity(0.18),
                         ),
                       ],
                     ),

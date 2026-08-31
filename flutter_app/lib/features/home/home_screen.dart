@@ -210,6 +210,25 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
+    // Listen for driver offers on limousine trips
+    _socket!.on('driver_offer', (data) {
+      debugPrint('Driver offer received: $data');
+      if (mounted && _currentOrderId != null &&
+          data['rideId'] == _currentOrderId) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('عرض جديد من ${data['driverName'] ?? 'سائق'}: ${data['offerAmount']} جنيه'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        NotificationService().showNotification(
+          id: 2,
+          title: 'عرض سعر جديد! 💰',
+          body: '${data['driverName'] ?? 'سائق'} عرض ${data['offerAmount']} جنيه',
+        );
+      }
+    });
+
     _socket!.on('disconnect', (_) {
       debugPrint('Customer socket disconnected');
     });
@@ -242,20 +261,21 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
+      // Send as a TRIP request (goes to drivers) not an ORDER (goes to companies)
       final response = await ApiClient().dio.post(
-        '/api/orders/limousine',
+        '/api/trips/request',
         data: {
           'pickupAddress': _pickupController.text.isNotEmpty
               ? _pickupController.text
               : 'موقعك الحالي',
-          'pickupLat': _currentLocation!.latitude,
-          'pickupLng': _currentLocation!.longitude,
           'dropoffAddress': _dropoffController.text.isNotEmpty
               ? _dropoffController.text
               : 'وجهتك',
+          'pickupLat': _currentLocation!.latitude,
+          'pickupLng': _currentLocation!.longitude,
           'dropoffLat': _destinationLocation!.latitude,
           'dropoffLng': _destinationLocation!.longitude,
-          'offerPrice': double.parse(_priceController.text),
+          'proposedFare': double.parse(_priceController.text),
           'notes':
               _notesController.text.isNotEmpty ? _notesController.text : null,
         },
@@ -263,15 +283,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (response.statusCode == 201) {
         final data = response.data;
+        final tripId = data['ride']['id'];
         setState(() {
-          _currentOrderId = data['order']['id'];
+          _currentOrderId = tripId;
           _isRequestingOrder = false;
         });
-        await _saveCurrentOrder(_currentOrderId!);
+        await _saveCurrentOrder(tripId);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('تم إنشاء الطلب بنجاح!')),
+            const SnackBar(content: Text('تم إرسال الطلب للسواقين! انتظر العروض...')),
           );
           _resetForm();
         }
@@ -571,7 +592,7 @@ class _HomeScreenState extends State<HomeScreen> {
             IconButton(
               icon: const Icon(Icons.notifications),
               style: IconButton.styleFrom(
-                backgroundColor: Colors.white.withValues(alpha: 0.16),
+                backgroundColor: Colors.white.withOpacity(0.16),
                 foregroundColor: Colors.white,
                 shape: const CircleBorder(),
               ),
@@ -586,7 +607,7 @@ class _HomeScreenState extends State<HomeScreen> {
             IconButton(
               icon: const Icon(Icons.settings),
               style: IconButton.styleFrom(
-                backgroundColor: Colors.white.withValues(alpha: 0.16),
+                backgroundColor: Colors.white.withOpacity(0.16),
                 foregroundColor: Colors.white,
                 shape: const CircleBorder(),
               ),
@@ -702,7 +723,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(22),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.blueGrey.withValues(alpha: 0.14),
+                      color: Colors.blueGrey.withOpacity(0.14),
                       blurRadius: 16,
                       offset: const Offset(0, 8),
                     ),
@@ -780,7 +801,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   if (_isLocating)
                     Container(
-                      color: Colors.black.withValues(alpha: 0.35),
+                      color: Colors.black.withOpacity(0.35),
                       child: const Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -825,7 +846,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
+                        color: Colors.black.withOpacity(0.05),
                         blurRadius: 10,
                         offset: const Offset(0, -5))
                   ],
@@ -851,7 +872,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           borderRadius: BorderRadius.circular(32),
                           boxShadow: [
                             BoxShadow(
-                              color: serviceColor.withValues(alpha: 0.22),
+                              color: serviceColor.withOpacity(0.22),
                               blurRadius: 16,
                               offset: const Offset(0, 8),
                             ),
@@ -866,7 +887,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   width: 52,
                                   height: 52,
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.18),
+                                    color: Colors.white.withOpacity(0.18),
                                     borderRadius: BorderRadius.circular(16),
                                   ),
                                   child: Icon(
@@ -894,7 +915,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       Text(
                                         isLimousine ? 'تنقل بسهولة وراحة' : 'توصيل آمن وسريع',
                                         style: TextStyle(
-                                          color: Colors.white.withValues(alpha: 0.82),
+                                          color: Colors.white.withOpacity(0.82),
                                           fontSize: 13,
                                         ),
                                       ),
@@ -905,7 +926,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 9, vertical: 6),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.18),
+                                    color: Colors.white.withOpacity(0.18),
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: const Text(
@@ -925,7 +946,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? 'حدد مكانك ووجهتك لطلب سيارة الآن'
                                   : 'أدخل تفاصيل الشحنة ومكان التسليم الآن',
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.9),
+                                color: Colors.white.withOpacity(0.9),
                                 fontSize: 14,
                               ),
                             ),
@@ -1329,7 +1350,7 @@ class _ServiceDashboardScreenState extends State<ServiceDashboardScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.12),
+                  color: accentColor.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Column(
@@ -1472,7 +1493,7 @@ class _DashboardItem extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
+              color: color.withOpacity(0.12),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color),

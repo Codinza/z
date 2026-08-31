@@ -122,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
+                            color: Colors.black.withOpacity(0.1),
                             blurRadius: 30,
                             offset: const Offset(0, 10),
                           ),
@@ -203,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFFff7e5f).withValues(alpha: 0.4),
+                                  color: const Color(0xFFff7e5f).withOpacity(0.4),
                                   blurRadius: 20,
                                   offset: const Offset(0, 10),
                                 ),
@@ -245,7 +245,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Text(
                         'ليس لديك حساب؟ سجل الآن',
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.95),
+                          color: Colors.white.withOpacity(0.95),
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
                         ),
