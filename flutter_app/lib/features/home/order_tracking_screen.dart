@@ -11,8 +11,9 @@ import '../../core/network/api_client.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final String orderId;
+  final bool isTrip;
 
-  const OrderTrackingScreen({super.key, required this.orderId});
+  const OrderTrackingScreen({super.key, required this.orderId, this.isTrip = false});
 
   @override
   State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
@@ -25,6 +26,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   socket_io.Socket? _socket;
   Timer? _refreshTimer;
   Map<String, dynamic>? _order;
+  List<dynamic> _tripOffers = [];
   LatLng? _driverLocation;
   bool _isLoading = true;
   String? _error;
@@ -49,24 +51,78 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     }
 
     try {
-      final response = await ApiClient().dio.get('/api/orders/${widget.orderId}');
-      final order = response.data['order'];
-      if (response.statusCode != 200 || order is! Map) {
-        throw Exception('تعذر تحميل تفاصيل الطلب');
-      }
-      if (mounted) {
-        setState(() {
-          _order = Map<String, dynamic>.from(order);
-          _isLoading = false;
-          _error = null;
-        });
+      if (widget.isTrip) {
+        // Load Trip details
+        final response = await ApiClient().dio.get('/api/trips/${widget.orderId}');
+        final trip = response.data['trip'];
+        if (response.statusCode != 200 || trip is! Map) {
+          throw Exception('تعذر تحميل تفاصيل الرحلة');
+        }
+        
+        // Load Offers
+        final offersResponse = await ApiClient().dio.get('/api/trips/${widget.orderId}/offers');
+        
+        if (mounted) {
+          setState(() {
+            _order = Map<String, dynamic>.from(trip);
+            _tripOffers = offersResponse.data['offers'] ?? [];
+            _isLoading = false;
+            _error = null;
+          });
+        }
+      } else {
+        // Load Order (Shipping) details
+        final response = await ApiClient().dio.get('/api/orders/${widget.orderId}');
+        final order = response.data['order'];
+        if (response.statusCode != 200 || order is! Map) {
+          throw Exception('تعذر تحميل تفاصيل الطلب');
+        }
+        if (mounted) {
+          setState(() {
+            _order = Map<String, dynamic>.from(order);
+            _isLoading = false;
+            _error = null;
+          });
+        }
       }
     } catch (error) {
       if (mounted && !silent) {
         setState(() {
           _isLoading = false;
-          _error = 'فشل تحميل الطلب: $error';
+          _error = 'فشل التحميل: $error';
         });
+      }
+    }
+  }
+
+  Future<void> _acceptDriverOffer(String driverId) async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final response = await ApiClient().dio.post(
+        '/api/trips/${widget.orderId}/accept-offer',
+        data: {'driverId': driverId},
+      );
+
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+        if (response.statusCode == 200) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تم قبول العرض! السائق في الطريق إليك')),
+          );
+          _loadOrder(); // Refresh to show accepted state
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل قبول العرض، حاول مرة أخرى')),
+        );
       }
     }
   }
@@ -84,6 +140,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     _socket!.on('driver_location_update', _handleDriverLocation);
     _socket!.on('order_status_changed', _handleOrderUpdate);
     _socket!.on('trip_status_changed', _handleOrderUpdate);
+    _socket!.on('driver_offer', _handleNewOffer);
+  }
+
+  void _handleNewOffer(dynamic data) {
+    if (data is! Map || data['rideId']?.toString() != widget.orderId) return;
+    // New offer arrived, reload order/offers
+    _loadOrder(silent: true);
   }
 
   void _handleDriverLocation(dynamic data) {
@@ -247,10 +310,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           orderId: widget.orderId,
                           statusIndex: _statusIndex(_order?['status']?.toString()),
                           hasLiveDriver: _driverLocation != null,
-                            offers: (_order?['priceOffers'] as List? ?? [])
-                              .whereType<Map>()
-                              .map((offer) => Map<String, dynamic>.from(offer))
-                              .toList(),
+                          isTrip: widget.isTrip,
+                          offers: widget.isTrip 
+                              ? _tripOffers.whereType<Map>().map((o) => Map<String, dynamic>.from(o)).toList()
+                              : (_order?['priceOffers'] as List? ?? [])
+                                .whereType<Map>()
+                                .map((offer) => Map<String, dynamic>.from(offer))
+                                .toList(),
+                          onAcceptOffer: _acceptDriverOffer,
                         ),
                       ),
                     ],
@@ -266,7 +333,9 @@ class _TrackingPanel extends StatelessWidget {
   final String orderId;
   final int statusIndex;
   final bool hasLiveDriver;
+  final bool isTrip;
   final List<Map<String, dynamic>> offers;
+  final Function(String driverId) onAcceptOffer;
 
   const _TrackingPanel({
     required this.color,
@@ -274,7 +343,9 @@ class _TrackingPanel extends StatelessWidget {
     required this.orderId,
     required this.statusIndex,
     required this.hasLiveDriver,
+    required this.isTrip,
     required this.offers,
+    required this.onAcceptOffer,
   });
 
   @override
@@ -349,37 +420,73 @@ class _TrackingPanel extends StatelessWidget {
               const SizedBox(height: 14),
               const Divider(height: 1),
               const SizedBox(height: 10),
-              const Text('عروض الشركات',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              Text(isTrip ? 'عروض السائقين' : 'عروض الشركات',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
               const SizedBox(height: 7),
               ...offers.asMap().entries.map((entry) {
                 final offer = entry.value;
-                final company = offer['company'] as Map?;
-                final price = (offer['offeredPrice'] as num?)?.toDouble();
+                final name = isTrip 
+                    ? (offer['driverName']?.toString() ?? 'سائق') 
+                    : ((offer['company'] as Map?)?['companyName']?.toString() ?? 'شركة شحن');
+                final price = isTrip
+                    ? (offer['offerAmount'] as num?)?.toDouble()
+                    : (offer['offeredPrice'] as num?)?.toDouble();
                 final prices = offers
-                    .map((item) => (item['offeredPrice'] as num?)?.toDouble())
-                    .whereType<double>();
+                    .map((item) => (isTrip ? item['offerAmount'] : item['offeredPrice']) as num?)
+                    .whereType<num>()
+                    .map((n) => n.toDouble());
                 final lowest = prices.isEmpty ? null : prices.reduce((a, b) => a < b ? a : b);
                 final isBest = price != null && lowest != null && price == lowest;
+                final status = offer['status']?.toString();
+                final isAccepted = status == 'accepted' || status == 'CUSTOMER_APPROVED';
+
                 return Container(
                   margin: const EdgeInsets.only(bottom: 6),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: isBest ? color.withOpacity(0.1) : Colors.grey.shade50,
+                    color: isBest || isAccepted ? color.withOpacity(0.1) : Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                        color: isBest ? color.withOpacity(0.35) : Colors.grey.shade200),
+                        color: isBest || isAccepted ? color.withOpacity(0.35) : Colors.grey.shade200),
                   ),
                   child: Row(
                     children: [
-                      Expanded(child: Text(company?['companyName']?.toString() ?? 'شركة شحن')),
-                      if (isBest)
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            if (isTrip && status == 'pending')
+                              Text('متاح للقبول', style: TextStyle(color: Colors.green.shade700, fontSize: 10)),
+                          ],
+                        ),
+                      ),
+                      if (isBest && !isAccepted)
                         Padding(
                           padding: const EdgeInsetsDirectional.only(end: 8),
                           child: Text('الأفضل', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
                         ),
-                      Text('${price?.toStringAsFixed(2) ?? '-'} ج.م',
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('${price?.toStringAsFixed(2) ?? '-'} ج.م',
+                              style: const TextStyle(fontWeight: FontWeight.bold)),
+                          if (isTrip && status == 'pending')
+                            ElevatedButton(
+                              onPressed: () => onAcceptOffer(offer['driverId'].toString()),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: color,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size(60, 26),
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                              child: const Text('قبول'),
+                            ),
+                          if (isAccepted)
+                            Text('تم القبول', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
                     ],
                   ),
                 );

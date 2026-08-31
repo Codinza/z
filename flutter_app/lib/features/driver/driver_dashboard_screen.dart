@@ -147,6 +147,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
     _socket!.on('trip_request', (data) {
       if (mounted) {
+        // Only show new requests if the driver doesn't have an active trip
+        final hasActiveTrip = _incomingTrips.any((t) => 
+          t['driverId'] == _driverId && 
+          ['accepted', 'driver_arriving', 'driver_arrived', 'started'].contains(t['status'])
+        );
+        
+        if (hasActiveTrip) return;
+
         setState(() {
           // Add to top of list
           _incomingTrips.insert(0, data);
@@ -162,6 +170,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           id: 10,
           title: 'طلب رحلة جديد! 🚗',
           body: 'من: ${data['pickupAddress'] ?? 'موقع العميل'} - السعر: ${data['fareEstimate'] ?? ''} ج.م',
+        );
+      }
+    });
+
+    _socket!.on('offer_accepted', (data) {
+      debugPrint('Offer accepted by customer: $data');
+      if (mounted) {
+        _fetchAvailableTrips(); // Reload to get full trip details
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تهانينا! قبل العميل عرضك.'), backgroundColor: Colors.green),
+        );
+        NotificationService().showNotification(
+          id: 11,
+          title: 'تم قبول عرضك! 🎉',
+          body: 'العميل وافق على عرضك. توجه إليه الآن.',
         );
       }
     });
@@ -619,6 +642,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             border: OutlineInputBorder(),
                             contentPadding: EdgeInsets.symmetric(horizontal: 12),
                           ),
+                          enabled: trip['offerSent'] != true, // Disable if already sent
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -626,55 +650,30 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         flex: 1,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
+                            backgroundColor: trip['offerSent'] == true ? Colors.grey : Colors.green,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
-                          onPressed: () {
+                          onPressed: trip['offerSent'] == true ? null : () async {
                             final amount = double.tryParse(controller?.text ?? '') ?? (trip['fareEstimate'] as num?)?.toDouble() ?? 0;
-                            _submitOffer(tripId, amount);
+                            await _submitOffer(tripId, amount);
+                            if (mounted) {
+                              setState(() {
+                                // Mark as sent locally to disable button
+                                final idx = _incomingTrips.indexWhere((t) => (t['id'] ?? t['rideId']) == tripId);
+                                if (idx != -1) _incomingTrips[idx]['offerSent'] = true;
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('تم إرسال العرض للعميل! بانتظار الموافقة...')),
+                              );
+                            }
                           },
-                          child: const Text('إرسال العرض', style: TextStyle(fontWeight: FontWeight.bold)),
+                          child: Text(trip['offerSent'] == true ? 'في الانتظار' : 'إرسال العرض', 
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                         ),
                       ),
                     ],
-                  ),
-                if (status == 'pending') ...[
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            final amount = double.tryParse(controller?.text ?? '') ??
-                                (trip['fareEstimate'] as num?)?.toDouble() ?? 0;
-                            _acceptTrip(tripId, amount);
-                          },
-                          icon: const Icon(Icons.check_circle_outline),
-                          label: const Text('قبول الطلب'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade700,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 13),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _rejectTrip(tripId),
-                          icon: const Icon(Icons.close),
-                          label: const Text('رفض الطلب'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red.shade700,
-                            side: BorderSide(color: Colors.red.shade300),
-                            padding: const EdgeInsets.symmetric(vertical: 13),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ]
+                  )
                 else if (status == 'accepted')
                   SizedBox(
                     width: double.infinity,
