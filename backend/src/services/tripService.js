@@ -15,6 +15,10 @@ export function emitOrderStatusChanged(data) {
 }
 
 export const rides = new Map();
+
+export function getPendingRides() {
+  return Array.from(rides.values()).filter((ride) => ride.status === 'pending');
+}
 const assignments = new Map();
 const driverAvailability = new Map([
   ['driver_dummy_001', { id: 'driver_dummy_001', isAvailable: true, lat: 24.7136, lng: 46.6753 }],

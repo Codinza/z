@@ -1,4 +1,6 @@
 // Track online drivers
+import { getPendingRides } from '../services/tripService.js';
+
 const onlineDrivers = new Map(); // socketId -> driverId
 
 export function getOnlineDriversCount() {
@@ -19,6 +21,12 @@ export function initSocketServer(io) {
       onlineDrivers.set(socket.id, driverId);
       console.log(`Driver ${driverId} is now online. Total online: ${onlineDrivers.size}`);
       io.emit('driver:status', { driverId, ready: true, onlineCount: onlineDrivers.size });
+      for (const ride of getPendingRides()) {
+        socket.emit('trip_request', {
+          ...ride,
+          rideId: ride.id,
+        });
+      }
     });
 
     socket.on('driver_location_update', (data) => {
