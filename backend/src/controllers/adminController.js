@@ -322,7 +322,21 @@ export const adminSendCounterOffer = async (req, res) => {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    const companyId = req.user.companyId || req.user.id; // fallback if general admin
+    let companyId = req.user?.companyId || order.companyId;
+    if (companyId) {
+      const company = await prisma.company.findUnique({ where: { id: companyId } });
+      if (!company) companyId = null;
+    }
+    if (!companyId) {
+      const shippingCompany = await prisma.company.findFirst({
+        where: { companyType: 'SHIPPING', status: { in: ['active', 'approved'] } },
+        orderBy: { createdAt: 'asc' },
+      });
+      companyId = shippingCompany?.id;
+    }
+    if (!companyId) {
+      return res.status(400).json({ error: 'No active shipping company is available for this offer' });
+    }
 
     const priceOffer = await prisma.priceOffer.create({
       data: {
