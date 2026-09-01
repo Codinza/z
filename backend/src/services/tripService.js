@@ -27,7 +27,18 @@ function makeRideId() {
 
 class TripService {
   async listTrips() {
-    return Array.from(rides.values());
+    const memoryTrips = Array.from(rides.values());
+    try {
+      const storedTrips = await tripRepository.listTrips();
+      const byId = new Map(storedTrips.map((trip) => [trip.id, trip]));
+      for (const trip of memoryTrips) byId.set(trip.id, trip);
+      return Array.from(byId.values()).sort((a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    } catch (error) {
+      console.warn('Using in-memory trips because Prisma storage is unavailable:', error.message);
+      return memoryTrips;
+    }
   }
 
   async getTripHistory() {
