@@ -15,13 +15,14 @@ export function initSocketServer(io) {
   io.on('connection', (socket) => {
     console.log('Socket connected:', socket.id);
 
-    socket.on('driver:ready', (driverId) => {
+    socket.on('driver:ready', async (driverId) => {
       socket.join(`driver:${driverId}`);
       // Track this driver as online
       onlineDrivers.set(socket.id, driverId);
       console.log(`Driver ${driverId} is now online. Total online: ${onlineDrivers.size}`);
       io.emit('driver:status', { driverId, ready: true, onlineCount: onlineDrivers.size });
-      for (const ride of getPendingRides()) {
+      const pendingRides = await getPendingRides();
+      for (const ride of pendingRides) {
         socket.emit('trip_request', {
           ...ride,
           rideId: ride.id,

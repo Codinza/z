@@ -16,8 +16,16 @@ export function emitOrderStatusChanged(data) {
 
 export const rides = new Map();
 
-export function getPendingRides() {
-  return Array.from(rides.values()).filter((ride) => ride.status === 'pending');
+export async function getPendingRides() {
+  const memoryTrips = Array.from(rides.values());
+  try {
+    const storedTrips = await tripRepository.listTrips();
+    const byId = new Map(storedTrips.map((trip) => [trip.id, trip]));
+    for (const trip of memoryTrips) byId.set(trip.id, trip);
+    return Array.from(byId.values()).filter((ride) => ride.status === 'pending');
+  } catch (_) {
+    return memoryTrips.filter((ride) => ride.status === 'pending');
+  }
 }
 const assignments = new Map();
 const driverAvailability = new Map([
