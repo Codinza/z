@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { emitOrderStatusChanged } from '../services/tripService.js';
 const prisma = new PrismaClient();
 
 export const createLimousineOrder = async (req, res) => {
@@ -183,6 +184,13 @@ export const createShippingOrder = async (req, res) => {
         type: 'order_created',
         orderId: order.id,
       },
+    });
+
+    emitOrderStatusChanged({
+      orderId: order.id,
+      status: 'NEW_SHIPPING_ORDER',
+      customerId,
+      price: order.customerOfferPrice,
     });
 
     res.status(201).json({

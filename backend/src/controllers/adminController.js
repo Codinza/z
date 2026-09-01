@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { tripService } from '../services/tripService.js';
+import { tripService, emitOrderStatusChanged } from '../services/tripService.js';
 import { getOnlineDriversCount, getOnlineDriversList } from '../sockets/socketServer.js';
 
 const prisma = new PrismaClient();
@@ -265,6 +265,12 @@ export const adminAcceptOrder = async (req, res) => {
       },
     });
 
+    emitOrderStatusChanged({
+      orderId,
+      status: 'COMPANY_ACCEPTED',
+      price: updatedOrder.finalPrice,
+    });
+
     res.json({ message: 'Order accepted', order: updatedOrder });
   } catch (error) {
     console.error('adminAcceptOrder error:', error);
@@ -316,10 +322,13 @@ export const adminSendCounterOffer = async (req, res) => {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
+    const companyId = req.user.companyId || req.user.id; // fallback if general admin
+
     const priceOffer = await prisma.priceOffer.create({
       data: {
         orderId,
         customerId: order.customerId,
+        companyId,
         offeredPrice,
         sentBy: 'COMPANY',
       },
@@ -330,6 +339,7 @@ export const adminSendCounterOffer = async (req, res) => {
       data: {
         status: 'PRICE_SENT',
         companyOfferPrice: offeredPrice,
+        companyId,
       },
     });
 
@@ -342,6 +352,8 @@ export const adminSendCounterOffer = async (req, res) => {
         orderId: orderId,
       },
     });
+
+    emitOrderStatusChanged({ orderId, status: 'PRICE_SENT', price: offeredPrice });
 
     res.json({ message: 'Counter offer sent', priceOffer, order: updatedOrder });
   } catch (error) {

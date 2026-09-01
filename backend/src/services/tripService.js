@@ -10,6 +10,10 @@ export function setSocketIO(socketIOInstance) {
   io = socketIOInstance;
 }
 
+export function emitOrderStatusChanged(data) {
+  io?.emit('order_status_changed', data);
+}
+
 export const rides = new Map();
 const assignments = new Map();
 const driverAvailability = new Map([

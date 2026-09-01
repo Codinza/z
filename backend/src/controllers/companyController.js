@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
+import { emitOrderStatusChanged } from '../services/tripService.js';
 
 const prisma = new PrismaClient();
 
@@ -476,6 +477,12 @@ export const acceptOrder = async (req, res) => {
       },
     });
 
+    emitOrderStatusChanged({
+      orderId,
+      status: 'COMPANY_ACCEPTED',
+      price: updatedOrder.finalPrice,
+    });
+
     res.json({
       message: 'Order accepted',
       order: updatedOrder,
@@ -589,6 +596,8 @@ export const sendCounterOffer = async (req, res) => {
         orderId: orderId,
       },
     });
+
+    emitOrderStatusChanged({ orderId, status: 'PRICE_SENT', price: offeredPrice });
 
     res.json({
       message: 'Counter offer sent',
