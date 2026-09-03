@@ -15,7 +15,27 @@ class RideFlowApp extends StatelessWidget {
       title: 'Zoon',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xffF97316),
+          brightness: Brightness.light,
+        ).copyWith(
+          primary: const Color(0xffF97316),
+          secondary: const Color(0xff111315),
+          surface: const Color(0xffF6F7F8),
+        ),
+        scaffoldBackgroundColor: const Color(0xffF6F7F8),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xff111315),
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xffF97316),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
         useMaterial3: true,
       ),
       home: const AuthGate(),

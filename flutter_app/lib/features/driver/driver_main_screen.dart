@@ -3,8 +3,6 @@ import 'driver_dashboard_screen.dart';
 import 'driver_archive_screen.dart';
 import 'driver_earnings_screen.dart';
 import 'driver_settings_screen.dart';
-import '../../features/auth/auth_service.dart';
-import '../../features/auth/login_screen.dart';
 
 class DriverMainScreen extends StatefulWidget {
   const DriverMainScreen({super.key});
@@ -23,61 +21,34 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
     const DriverSettingsScreen(),
   ];
 
-  Future<void> _logout() async {
-    await AuthService.logout();
-    if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (_) => false,
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Zoon'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: _logout,
-              tooltip: 'تسجيل الخروج',
-            ),
-          ],
-        ),
         body: _screens[_currentIndex],
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: Colors.blue.shade800,
-          unselectedItemColor: Colors.grey,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard),
-              label: 'الطلبات',
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xff172B3A),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(.18), blurRadius: 18, offset: const Offset(0, 8))],
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.history),
-              label: 'الأرشيف',
+            child: NavigationBar(
+              height: 70,
+              backgroundColor: Colors.transparent,
+              indicatorColor: const Color(0xffD6A84F),
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) => setState(() => _currentIndex = index),
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.inbox_outlined), selectedIcon: Icon(Icons.inbox, color: Color(0xff172B3A)), label: 'الطلبات'),
+                NavigationDestination(icon: Icon(Icons.history), label: 'الأرشيف'),
+                NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), label: 'الأرباح'),
+                NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'الإعدادات'),
+              ],
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet),
-              label: 'الأرباح',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.settings),
-              label: 'الإعدادات',
-            ),
-          ],
+          ),
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'notification_service.dart';
+import '../auth/auth_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -21,7 +22,12 @@ class NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _fetchNotifications() async {
     setState(() => _isLoading = true);
-    final notifications = await NotificationService.getNotifications('user_dummy_123');
+    final userId = await AuthService.getUserId();
+    if (userId == null || userId.isEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+    final notifications = await NotificationService.getNotifications(userId);
     setState(() {
       _notifications = notifications;
       _isLoading = false;

@@ -11,7 +11,8 @@ import 'package:geolocator/geolocator.dart';
 import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/services/notification_service.dart';
-import '../admin/admin_dashboard_screen.dart';
+import '../auth/auth_service.dart';
+import '../map_trip/active_trip_screen.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
   const DriverDashboardScreen({super.key});
@@ -28,24 +29,40 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   final List<Map<String, dynamic>> _incomingTrips = [];
 
   socket_io.Socket? _socket;
+  Timer? _tripsRefreshTimer;
   StreamSubscription<Position>? _positionStreamSubscription;
 
   // Controllers for offers
   final Map<String, TextEditingController> _offerControllers = {};
 
-  final String _driverId = 'driver_dummy_001';
+  String _driverId = 'driver_dummy_001';
 
   @override
   void initState() {
     super.initState();
+    _initializeDriverSession();
+  }
+
+  Future<void> _initializeDriverSession() async {
+    final savedDriverId = await AuthService.getUserId();
+    if (savedDriverId != null && savedDriverId.isNotEmpty) {
+      _driverId = savedDriverId;
+    }
+
+    if (!mounted) return;
+
     _initSocket();
     _fetchAvailableTrips();
+    _tripsRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_socket?.connected != true) _fetchAvailableTrips();
+    });
     _startLocationUpdates();
   }
 
   @override
   void dispose() {
     _positionStreamSubscription?.cancel();
+    _tripsRefreshTimer?.cancel();
     _socket?.disconnect();
     for (var controller in _offerControllers.values) {
       controller.dispose();
@@ -137,39 +154,55 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _socket = socket_io.io(AppConfig.backendBaseUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
+      'reconnection': true,
+      'reconnectionAttempts': 20,
+      'reconnectionDelay': 1000,
     });
 
     _socket!.connect();
 
-    _socket!.on('connect', (_) {
+    _socket!.on('connect', (_) async {
       _socket!.emit('driver:ready', _driverId);
+      await _fetchAvailableTrips();
+      if (mounted) setState(() {});
+    });
+
+    _socket!.on('disconnect', (_) {
+      if (mounted) setState(() {});
     });
 
     _socket!.on('trip_request', (data) {
       if (mounted) {
+        final normalizedData = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+        normalizedData['status'] ??= 'pending';
+
         // Only show new requests if the driver doesn't have an active trip
         final hasActiveTrip = _incomingTrips.any((t) => 
           t['driverId'] == _driverId && 
           ['accepted', 'driver_arriving', 'driver_arrived', 'started'].contains(t['status'])
         );
-        
+
         if (hasActiveTrip) return;
 
+        final alreadyExists = _incomingTrips.any((trip) =>
+          (trip['id'] ?? trip['rideId']) == (normalizedData['id'] ?? normalizedData['rideId'])
+        );
+
+        if (alreadyExists) return;
+
         setState(() {
-          // Add to top of list
-          _incomingTrips.insert(0, data);
-          final tripId = data['id'] ?? data['rideId'];
+          _incomingTrips.insert(0, normalizedData);
+          final tripId = normalizedData['id'] ?? normalizedData['rideId'];
           if (!_offerControllers.containsKey(tripId)) {
             _offerControllers[tripId] = TextEditingController(
-              text: (data['fareEstimate'] as num?)?.toStringAsFixed(2) ?? '0.00',
+              text: (normalizedData['fareEstimate'] as num?)?.toStringAsFixed(2) ?? '0.00',
             );
           }
         });
-        // Notification: New trip request
         NotificationService().showNotification(
           id: 10,
           title: 'طلب رحلة جديد! 🚗',
-          body: 'من: ${data['pickupAddress'] ?? 'موقع العميل'} - السعر: ${data['fareEstimate'] ?? ''} ج.م',
+          body: 'من: ${normalizedData['pickupAddress'] ?? 'موقع العميل'} - السعر: ${normalizedData['fareEstimate'] ?? ''} ج.م',
         );
       }
     });
@@ -179,7 +212,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (mounted) {
         _fetchAvailableTrips(); // Reload to get full trip details
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تهانينا! قبل العميل عرضك.'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('تهانينا! قبل العميل عرضك.'), backgroundColor: Color(0xffF97316)),
         );
         NotificationService().showNotification(
           id: 11,
@@ -234,13 +267,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     });
 
     try {
-      final response = await http.get(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/trips'),
-      );
+      final response = await ApiClient().dio.get('/api/trips');
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final rides = data['rides'] as List<dynamic>;
+        final rides = response.data['rides'] as List<dynamic>;
         
         // Include pending trips AND any active trips assigned to this driver
         final relevantTrips = rides.where((ride) {
@@ -309,69 +339,71 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
   }
 
-  Future<void> _acceptTrip(String tripId, double offerAmount) async {
+  Future<void> _acceptTrip(Map<String, dynamic> trip) async {
+    final tripId = (trip['id'] ?? trip['rideId']).toString();
     setState(() => _isLoading = true);
     try {
-      final response = await http.post(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/trips/$tripId/accept'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'driverId': _driverId,
-          'offerAmount': offerAmount,
-        }),
+      final response = await ApiClient().dio.post(
+        '/api/trips/$tripId/accept',
+        data: {'driverId': _driverId, 'offerAmount': trip['fareEstimate']},
       );
-
       if (response.statusCode == 200 && mounted) {
-        final index = _incomingTrips.indexWhere(
-          (trip) => (trip['id'] ?? trip['rideId']) == tripId,
-        );
-        if (index != -1) {
-          setState(() => _incomingTrips[index]['status'] = 'accepted');
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم قبول الطلب بنجاح')),
+        final index = _incomingTrips.indexWhere((item) => (item['id'] ?? item['rideId']).toString() == tripId);
+        if (index != -1) setState(() => _incomingTrips[index]['status'] = 'accepted');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ActiveTripScreen(
+              tripId: tripId,
+              pickupLat: (trip['pickupLat'] as num).toDouble(),
+              pickupLng: (trip['pickupLng'] as num).toDouble(),
+              dropoffLat: (trip['dropoffLat'] as num?)?.toDouble(),
+              dropoffLng: (trip['dropoffLng'] as num?)?.toDouble(),
+              pickupAddress: trip['pickupAddress']?.toString(),
+              dropoffAddress: trip['dropoffAddress']?.toString(),
+            ),
+          ),
         );
       }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('فشل قبول الطلب: $error')),
-        );
-      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل قبول الطلب: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _rejectTrip(String tripId) async {
-    setState(() => _isLoading = true);
-    try {
-      final response = await http.post(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/trips/$tripId/reject'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'driverId': _driverId}),
-      );
-
-      if (response.statusCode == 200 && mounted) {
-        setState(() {
-          _incomingTrips.removeWhere(
-            (trip) => (trip['id'] ?? trip['rideId']) == tripId,
-          );
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم رفض الطلب')),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('فشل رفض الطلب: $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+  void _showTripDetails(Map<String, dynamic> trip) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Container(
+          height: MediaQuery.of(context).size.height * .72,
+          padding: const EdgeInsets.all(20),
+          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
+          child: ListView(children: [
+            Row(children: [const Expanded(child: Text('تفاصيل الطلب', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xff172B3A))),), IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close))]),
+            const Divider(),
+            _detailLine(Icons.person_outline, 'العميل', trip['userName']?.toString() ?? 'عميل'),
+            _detailLine(Icons.my_location, 'نقطة الاستلام', trip['pickupAddress']?.toString() ?? 'غير محدد'),
+            _detailLine(Icons.flag_outlined, 'نقطة التسليم', trip['dropoffAddress']?.toString() ?? 'غير محدد'),
+            _detailLine(Icons.route_outlined, 'المسافة', '${trip['distanceKm'] ?? 0} كم'),
+            _detailLine(Icons.payments_outlined, 'السعر', '${trip['fareEstimate'] ?? 0} ج.م'),
+            _detailLine(Icons.event_outlined, 'نوع الحجز', trip['tripType']?.toString() ?? 'حجز فوري'),
+            if (trip['notes'] != null) _detailLine(Icons.notes_outlined, 'ملاحظات', trip['notes'].toString()),
+          ]),
+        ),
+      ),
+    );
   }
+
+  Widget _detailLine(IconData icon, String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 16),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: const Color(0xffF97316)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: TextStyle(color: Colors.blueGrey.shade500, fontSize: 12)), const SizedBox(height: 3), Text(value, style: const TextStyle(color: Color(0xff172B3A), fontWeight: FontWeight.w600))]))]),
+  );
+
 
   Future<void> _updateTripStatus(String tripId, String status) async {
     setState(() => _isLoading = true);
@@ -424,53 +456,81 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('لوحة القيادة'),
-          backgroundColor: Colors.blue,
-          foregroundColor: Colors.white,
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.admin_panel_settings),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _fetchAvailableTrips,
-            )
-          ],
-        ),
-        body: Stack(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.blue.shade50, Colors.blue.shade100],
+        backgroundColor: const Color(0xffF3F6F8),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildDispatchHeader(),
+              Expanded(
+                child: Stack(
+                  children: [
+                    _buildIncomingTripsList(),
+                    if (_isLoading) const Center(child: CircularProgressIndicator(color: Color(0xffD6A84F))),
+                  ],
                 ),
               ),
-            ),
-            SafeArea(
-              child: _buildIncomingTripsList(),
-            ),
-            if (_isLoading) const Center(child: CircularProgressIndicator()),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDispatchHeader() {
+    final isConnected = _socket?.connected == true;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      decoration: const BoxDecoration(
+        color: Color(0xff172B3A),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Dispatch Center', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
+                  SizedBox(height: 4),
+                  Text('تشغيل الرحلات الفاخرة', style: TextStyle(color: Color(0xffB7C5D1), fontSize: 13)),
+                ]),
+              ),
+              IconButton(icon: const Icon(Icons.notifications_none, color: Colors.white), onPressed: () {}),
+              IconButton(icon: const Icon(Icons.refresh, color: Colors.white), onPressed: _fetchAvailableTrips),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Container(width: 9, height: 9, decoration: BoxDecoration(color: isConnected ? const Color(0xff42D392) : const Color(0xffF59E0B), shape: BoxShape.circle)),
+            const SizedBox(width: 7),
+            Text(isConnected ? 'متصل بالخادم مباشرة' : 'جاري الاتصال بالخادم', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+            const Spacer(),
+            Text('${_incomingTrips.where((trip) => trip['status'] == 'pending').length} طلبات جديدة', style: const TextStyle(color: Color(0xffD6A84F), fontWeight: FontWeight.bold)),
+          ]),
+        ],
       ),
     );
   }
 
   Widget _buildIncomingTripsList() {
     if (_incomingTrips.isEmpty) {
-      return const Center(
-        child: Text(
-          'لا توجد طلبات جديدة حالياً...',
-          style: TextStyle(fontSize: 18, color: Colors.black54),
+      return Center(
+        child: RefreshIndicator(
+          onRefresh: _fetchAvailableTrips,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              SizedBox(height: MediaQuery.of(context).size.height * .2),
+              const Icon(Icons.inbox_rounded, size: 72, color: Color(0xff9AA9B5)),
+              const SizedBox(height: 18),
+              const Center(child: Text('لا توجد طلبات جديدة حالياً', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xff172B3A)))),
+              const SizedBox(height: 8),
+              Center(child: Text('آخر تحديث: الآن', style: TextStyle(fontSize: 13, color: Colors.blueGrey.shade500))),
+              const SizedBox(height: 18),
+              Center(child: OutlinedButton.icon(onPressed: _fetchAvailableTrips, icon: const Icon(Icons.refresh), label: const Text('تحديث الطلبات'))),
+            ],
+          ),
         ),
       );
     }
@@ -487,15 +547,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         final bool isHeadingToCustomer = status == 'accepted' || status == 'driver_arriving';
         final double? destLat = isHeadingToCustomer ? trip['pickupLat'] : trip['dropoffLat'];
         final double? destLng = isHeadingToCustomer ? trip['pickupLng'] : trip['dropoffLng'];
+        final createdAt = DateTime.tryParse(trip['createdAt']?.toString() ?? '');
+        final ageMinutes = createdAt == null ? null : DateTime.now().difference(createdAt.toLocal()).inMinutes;
+        final bookingType = trip['tripType']?.toString() ?? trip['areaType']?.toString() ?? 'حجز فوري';
+        final vehicleType = trip['vehicleType']?.toString() ?? 'VIP Sedan';
 
         return Card(
-          elevation: 3,
+          elevation: 1,
           margin: const EdgeInsets.only(bottom: 12),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
             side: BorderSide(
-              color: status == 'pending' ? Colors.transparent : Colors.blue.shade300,
-              width: 2,
+              color: status == 'pending' ? const Color(0xffE1E8ED) : const Color(0xffD6A84F),
+              width: 1,
             ),
           ),
           child: Padding(
@@ -506,14 +570,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      status == 'pending' ? 'طلب جديد' : 'الرحلة الحالية',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: status == 'pending' ? Colors.blue.shade800 : Colors.green.shade800,
-                      ),
-                    ),
+                    Expanded(child: Text('#${tripId.toString().length > 10 ? tripId.toString().substring(0, 10) : tripId}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xff172B3A)))),
+                    Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), decoration: BoxDecoration(color: status == 'pending' ? const Color(0xfffff4df) : const Color(0xffE7F5EC), borderRadius: BorderRadius.circular(20)), child: Text(status == 'pending' ? 'جديد' : 'الرحلة الحالية', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: status == 'pending' ? const Color(0xffA16207) : const Color(0xff15803D)))),
                     if (status != 'pending' && destLat != null && destLng != null)
                       ElevatedButton.icon(
                         onPressed: () => _openDirections(destLat, destLng),
@@ -529,9 +587,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text('العميل: ${trip['userName'] ?? 'User Dummy'}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Row(children: [Icon(Icons.directions_car_outlined, size: 17, color: Colors.blueGrey.shade600), const SizedBox(width: 5), Text('$vehicleType  •  $bookingType', style: TextStyle(color: Colors.blueGrey.shade700, fontSize: 13))]),
                 Text('من: ${trip['pickupAddress'] ?? 'غير محدد'}'),
                 Text('إلى: ${trip['dropoffAddress'] ?? 'غير محدد'}'),
                 Text('المسافة: ${trip['distanceKm']?.toStringAsFixed(1) ?? '0'} كم'),
+                if (trip['fareEstimate'] != null || ageMinutes != null) ...[
+                  const SizedBox(height: 6),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('${trip['fareEstimate'] ?? 0} ج.م', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xff15803D))), if (ageMinutes != null) Text('منذ $ageMinutes دقيقة', style: TextStyle(fontSize: 12, color: ageMinutes > 10 ? const Color(0xffB42318) : Colors.blueGrey.shade600))]),
+                ],
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
@@ -626,12 +690,37 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     ),
                   ),
                   
-                const Divider(height: 16),
+                const Divider(height: 20),
                 
                 // Action Buttons based on Status
                 if (status == 'pending')
-                  Row(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => _acceptTrip(trip),
+                              icon: const Icon(Icons.check_circle_outline, size: 18),
+                              label: const Text('قبول الطلب'),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff15803D), foregroundColor: Colors.white),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showTripDetails(trip),
+                              icon: const Icon(Icons.visibility_outlined, size: 18),
+                              label: const Text('تفاصيل'),
+                              style: OutlinedButton.styleFrom(foregroundColor: const Color(0xff172B3A)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
                       Expanded(
                         flex: 2,
                         child: TextField(
@@ -650,12 +739,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         flex: 1,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: trip['offerSent'] == true ? Colors.grey : Colors.green,
+                            backgroundColor: trip['offerSent'] == true ? Colors.grey : const Color(0xffF97316),
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
                           onPressed: trip['offerSent'] == true ? null : () async {
                             final amount = double.tryParse(controller?.text ?? '') ?? (trip['fareEstimate'] as num?)?.toDouble() ?? 0;
+                            if (!context.mounted) return;
                             await _submitOffer(tripId, amount);
                             if (mounted) {
                               setState(() {
@@ -663,14 +753,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                 final idx = _incomingTrips.indexWhere((t) => (t['id'] ?? t['rideId']) == tripId);
                                 if (idx != -1) _incomingTrips[idx]['offerSent'] = true;
                               });
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('تم إرسال العرض للعميل! بانتظار الموافقة...')),
-                              );
                             }
                           },
                           child: Text(trip['offerSent'] == true ? 'في الانتظار' : 'إرسال العرض', 
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                         ),
+                      ),
+                        ],
                       ),
                     ],
                   )
@@ -702,7 +791,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         final lng = (trip['dropoffLng'] as num?)?.toDouble() ?? 0;
                         if (lat != 0 && lng != 0) _openDirections(lat, lng);
                       },
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xffF97316), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
                       child: const Text('بدء الرحلة والتوجه للوجهة', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     ),
                   )

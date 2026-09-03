@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
@@ -8,6 +9,7 @@ import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 
 import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
+import '../../core/services/notification_service.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final String orderId;
@@ -27,6 +29,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   Timer? _refreshTimer;
   Map<String, dynamic>? _order;
   List<dynamic> _tripOffers = [];
+  List<LatLng> _routePoints = [];
   LatLng? _driverLocation;
   bool _isLoading = true;
   String? _error;
@@ -69,6 +72,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             _isLoading = false;
             _error = null;
           });
+          _loadRoute();
         }
       } else {
         // Load Order (Shipping) details
@@ -83,6 +87,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             _isLoading = false;
             _error = null;
           });
+          _loadRoute();
         }
       }
     } catch (error) {
@@ -138,7 +143,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     });
     _socket!.on('location_update', _handleDriverLocation);
     _socket!.on('driver_location_update', _handleDriverLocation);
-    _socket!.on('order_status_changed', _handleOrderUpdate);
+    _socket!.on('order_status_changed', _handleOrderStatusChanged);
     _socket!.on('trip_status_changed', _handleOrderUpdate);
     _socket!.on('driver_offer', _handleNewOffer);
   }
@@ -146,6 +151,25 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   void _handleNewOffer(dynamic data) {
     if (data is! Map || data['rideId']?.toString() != widget.orderId) return;
     // New offer arrived, reload order/offers
+    _loadOrder(silent: true);
+  }
+
+  void _handleOrderStatusChanged(dynamic data) {
+    if (data is! Map || data['orderId']?.toString() != widget.orderId) return;
+    final status = data['status']?.toString();
+    if (status == 'PRICE_SENT') {
+      NotificationService().showNotification(
+        id: 20,
+        title: 'عرض سعر جديد',
+        body: 'وصل عرض سعر جديد لطلب الشحن',
+      );
+    } else if (status == 'COMPANY_ACCEPTED') {
+      NotificationService().showNotification(
+        id: 21,
+        title: 'تم قبول الطلب',
+        body: 'تم قبول طلب الشحن الخاص بك',
+      );
+    }
     _loadOrder(silent: true);
   }
 
@@ -177,11 +201,44 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   LatLng _locationFor(String type) {
+    if (widget.isTrip) {
+      final lat = double.tryParse(_order?['${type.toLowerCase()}Lat']?.toString() ?? '');
+      final lng = double.tryParse(_order?['${type.toLowerCase()}Lng']?.toString() ?? '');
+      if (lat != null && lng != null) return LatLng(lat, lng);
+      return _defaultLocation;
+    }
     final prefix = _order?['serviceType'] == 'SHIPPING' ? 'shipping' : 'limousine';
     final lat = double.tryParse(_order?['$prefix${type}Lat']?.toString() ?? '');
     final lng = double.tryParse(_order?['$prefix${type}Lng']?.toString() ?? '');
     if (lat == null || lng == null) return _defaultLocation;
     return LatLng(lat, lng);
+  }
+
+  Future<void> _loadRoute() async {
+    if (_order == null) return;
+    final pickup = _locationFor('Pickup');
+    final dropoff = _locationFor('Dropoff');
+    if (pickup == _defaultLocation || dropoff == _defaultLocation) return;
+
+    try {
+      final response = await Dio().get(
+        'https://router.project-osrm.org/route/v1/driving/${pickup.longitude},${pickup.latitude};${dropoff.longitude},${dropoff.latitude}',
+        queryParameters: {'overview': 'full', 'geometries': 'geojson'},
+      );
+      final coordinates = response.data['routes']?[0]?['geometry']?['coordinates'];
+      if (coordinates is! List || !mounted) return;
+      final points = coordinates
+          .whereType<List>()
+          .where((point) => point.length >= 2)
+          .map((point) => LatLng(
+                (point[1] as num).toDouble(),
+                (point[0] as num).toDouble(),
+              ))
+          .toList();
+      if (points.length > 1) setState(() => _routePoints = points);
+    } catch (_) {
+      // Keep the endpoints visible if the routing service is unavailable.
+    }
   }
 
   String _statusText(String? status) {
@@ -227,7 +284,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   @override
   Widget build(BuildContext context) {
     final isShipping = _order?['serviceType'] == 'SHIPPING';
-    final color = isShipping ? const Color(0xff16866b) : const Color(0xff2364aa);
+    final color = const Color(0xffF97316);
     final pickup = _locationFor('Pickup');
     final dropoff = _locationFor('Dropoff');
     final route = _driverLocation ?? pickup;
@@ -238,16 +295,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         appBar: AppBar(
           title: Text(isShipping ? 'تتبع الشحنة' : 'تتبع الرحلة'),
           centerTitle: true,
-          backgroundColor: color,
+          backgroundColor: const Color(0xff111315),
           foregroundColor: Colors.white,
         ),
         body: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
                 ? _ErrorView(message: _error!, onRetry: _loadOrder)
-                : Stack(
+                : Column(
                     children: [
-                      FlutterMap(
+                      Expanded(
+                        flex: 5,
+                        child: FlutterMap(
                         mapController: _mapController,
                         options: MapOptions(initialCenter: route, initialZoom: 13),
                         children: [
@@ -259,10 +318,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           PolylineLayer(
                             polylines: [
                               Polyline(
-                                points: _driverLocation == null
-                                    ? [pickup, dropoff]
-                                    : [_driverLocation!, pickup, dropoff],
-                                color: color,
+                                points: _routePoints.length > 1
+                                    ? _routePoints
+                                    : [pickup, dropoff],
+                                color: const Color(0xffF97316),
                                 strokeWidth: 5,
                               ),
                             ],
@@ -274,7 +333,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                 width: 44,
                                 height: 44,
                                 child: const Icon(Icons.trip_origin,
-                                    color: Colors.green, size: 34),
+                                  color: Color(0xffF97316), size: 34),
                               ),
                               Marker(
                                 point: dropoff,
@@ -300,11 +359,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           ),
                         ],
                       ),
-                      Positioned(
-                        left: 16,
-                        right: 16,
-                        bottom: 16,
-                        child: _TrackingPanel(
+                      ),
+                      Expanded(
+                        flex: 4,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          child: _TrackingPanel(
                           color: color,
                           title: _statusText(_order?['status']?.toString()),
                           orderId: widget.orderId,
@@ -318,6 +378,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                 .map((offer) => Map<String, dynamic>.from(offer))
                                 .toList(),
                           onAcceptOffer: _acceptDriverOffer,
+                        ),
                         ),
                       ),
                     ],
@@ -369,9 +430,9 @@ class _TrackingPanel extends StatelessWidget {
                 if (hasLiveDriver)
                   Row(
                     children: [
-                      Icon(Icons.circle, size: 9, color: Colors.green.shade600),
+                                  Icon(Icons.circle, size: 9, color: const Color(0xffF97316)),
                       const SizedBox(width: 5),
-                      Text('مباشر', style: TextStyle(color: Colors.green.shade700, fontSize: 12)),
+                      const Text('مباشر', style: TextStyle(color: Color(0xffF97316), fontSize: 12)),
                     ],
                   ),
               ],
@@ -457,7 +518,7 @@ class _TrackingPanel extends StatelessWidget {
                           children: [
                             Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
                             if (isTrip && status == 'pending')
-                              Text('متاح للقبول', style: TextStyle(color: Colors.green.shade700, fontSize: 10)),
+                              Text('متاح للقبول', style: TextStyle(color: const Color(0xffF97316), fontSize: 10)),
                           ],
                         ),
                       ),

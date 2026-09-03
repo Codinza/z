@@ -16,6 +16,7 @@ import { adminRoutes } from './routes/adminRoutes.js';
 import { companyRoutes } from './routes/companyRoutes.js';
 import { orderRoutes } from './routes/orderRoutes.js';
 import { mapsRoutes } from './routes/mapsRoutes.js';
+import { customerRoutes } from './routes/customerRoutes.js';
 import { setSocketIO } from './services/tripService.js';
 import { authMiddleware } from './middlewares/authMiddleware.js';
 
@@ -69,6 +70,7 @@ app.use('/api/locations', authMiddleware, locationRoutes());
 app.use('/api/payments', authMiddleware, paymentRoutes());
 app.use('/api/notifications', authMiddleware, notificationRoutes());
 app.use('/api/admin', authMiddleware, adminRoutes());
+app.use('/api/customers', authMiddleware, customerRoutes());
 
 // Set Socket.IO instance in trip service for real-time events
 setSocketIO(io);

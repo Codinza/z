@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
-import '../../features/auth/auth_service.dart';
-import '../../features/auth/login_screen.dart';
+import 'customer_profile_screen.dart';
+import 'customer_balance_screen.dart';
+import 'customer_trips_screen.dart';
 
 class CustomerMainScreen extends StatefulWidget {
   const CustomerMainScreen({super.key});
@@ -18,71 +19,42 @@ class _CustomerMainScreenState extends State<CustomerMainScreen> {
       initialService: 'shipping',
       showServiceSelector: true,
     ),
-    const Scaffold(body: Center(child: Text('دليل الخدمات (قريباً)', style: TextStyle(fontSize: 20)))),
-    const Scaffold(body: Center(child: Text('الأخبار (قريباً)', style: TextStyle(fontSize: 20)))),
-    const Scaffold(body: Center(child: Text('المزيد (قريباً)', style: TextStyle(fontSize: 20)))),
+    const CustomerTripsScreen(),
+    const CustomerBalanceScreen(),
+    const CustomerProfileScreen(),
   ];
-
-  Future<void> _logout() async {
-    await AuthService.logout();
-    if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (_) => false,
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Zoon'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: _logout,
-              tooltip: 'تسجيل الخروج',
-            ),
-          ],
+        body: IndexedStack(
+          index: _currentIndex,
+          children: _screens,
         ),
-        body: _screens[_currentIndex],
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: Colors.blue.shade800,
-          unselectedItemColor: Colors.grey,
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home),
-              label: 'الرئيسية',
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xff111315),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(.15), blurRadius: 18, offset: const Offset(0, 8))],
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.menu_book),
-              label: 'الدليل',
+            child: NavigationBar(
+              height: 68,
+              backgroundColor: Colors.transparent,
+              indicatorColor: const Color(0xffF97316),
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) => setState(() => _currentIndex = index),
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home, color: Colors.white), label: 'الرئيسية'),
+                NavigationDestination(icon: Icon(Icons.directions_car_outlined), selectedIcon: Icon(Icons.directions_car, color: Colors.white), label: 'رحلاتي'),
+                NavigationDestination(icon: Icon(Icons.wallet_outlined), selectedIcon: Icon(Icons.wallet, color: Colors.white), label: 'الرصيد'),
+                NavigationDestination(icon: Icon(Icons.person_outlined), selectedIcon: Icon(Icons.person, color: Colors.white), label: 'حسابي'),
+              ],
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.newspaper),
-              label: 'الأخبار',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.more_horiz),
-              label: 'المزيد',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+          ),
         ),
       ),
     );

@@ -9,23 +9,24 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  phone     String   @unique
-  email     String?  @unique
-  password  String
-  role      String   @default("customer")  // customer, driver, admin, company, super_admin
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  name            String
+  phone           String   @unique
+  email           String?  @unique
+  password        String
+  role            String   @default("customer")  // customer, driver, admin, company, super_admin
+  walletBalance   Float    @default(0.0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  driver       Driver?
-  company      Company?
-  trips        Trip[]
-  orders       Order[]
-  ratings      Rating[]
-  payments     Payment[]
-  notifications Notification[]
-  priceOffers  PriceOffer[]
+  driver          Driver?
+  company         Company?
+  trips           Trip[]
+  orders          Order[]
+  ratings         Rating[]
+  payments        Payment[]
+  notifications   Notification[]
+  priceOffers     PriceOffer[]
 }
 
 model Driver {

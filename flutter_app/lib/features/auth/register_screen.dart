@@ -26,6 +26,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureText = true;
 
   Future<void> _register() async {
+    final missingFields = _selectedRole == 'driver' &&
+            (_carModelController.text.trim().isEmpty ||
+                _carColorController.text.trim().isEmpty ||
+                _carYearController.text.trim().isEmpty ||
+                _plateNumberController.text.trim().isEmpty)
+        ? 'يرجى إدخال بيانات السيارة كاملة'
+        : _nameController.text.trim().isEmpty ||
+                _phoneController.text.trim().isEmpty ||
+                _passwordController.text.trim().isEmpty
+            ? 'يرجى إدخال الاسم ورقم الهاتف وكلمة المرور'
+            : null;
+    if (missingFields != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(missingFields)),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     
     final result = await AuthService.register(
@@ -60,7 +78,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result?['message'] ?? 'فشل إنشاء الحساب')),
+        SnackBar(content: Text(result?['error'] ?? result?['message'] ?? 'فشل إنشاء الحساب')),
       );
     }
   }

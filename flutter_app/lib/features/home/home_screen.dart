@@ -34,13 +34,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final flutter_map.MapController _flutterMapController =
-      flutter_map.MapController();
+  final flutter_map.MapController _flutterMapController = flutter_map.MapController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _pickupController = TextEditingController();
   final TextEditingController _dropoffController = TextEditingController();
-  final ScrollController _formScrollController = ScrollController();
 
   latlong.LatLng? _currentLocation;
   latlong.LatLng? _destinationLocation;
@@ -48,39 +46,22 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLocating = true;
   String? _currentOrderId;
   bool _isRequestingOrder = false;
-  bool _isMapCollapsed = false;
   String _shipmentType = 'طرد';
   String _shipmentSize = 'متوسطة';
   XFile? _shipmentImage;
   DateTime? _shippingDateTime;
   socket_io.Socket? _socket;
 
-  // Service selection
   late String _selectedService;
-
-  // Fallback: Borg El Arab New, Egypt
   static const latlong.LatLng _defaultLocation = latlong.LatLng(30.78, 29.65);
 
   @override
   void initState() {
     super.initState();
-
     _selectedService = widget.initialService;
-
     _initSocket();
     _determineLocation();
     _loadCurrentOrder();
-    _formScrollController.addListener(_handleFormScroll);
-    NotificationService().requestPermission();
-  }
-
-  void _handleFormScroll() {
-    final shouldCollapse = _formScrollController.offset > 28;
-    if (shouldCollapse != _isMapCollapsed && mounted) {
-      setState(() {
-        _isMapCollapsed = shouldCollapse;
-      });
-    }
   }
 
   Future<void> _loadCurrentOrder() async {
@@ -153,15 +134,100 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
+  Widget _buildServiceCard({
+    required String service,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+  }) {
+    final selected = _selectedService == service;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedService = service;
+          _resetForm();
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        height: 142,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xff111315) : Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: selected ? const Color(0xff111315) : const Color(0xffE4E7EA),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: selected
+                  ? const Color(0xffF97316).withOpacity(.18)
+                  : Colors.black.withOpacity(.04),
+              blurRadius: selected ? 18 : 10,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? const Color(0xffF97316).withOpacity(.16)
+                        : const Color(0xffF1F3F4),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: selected ? const Color(0xffF97316) : const Color(0xff52606D),
+                    size: 24,
+                  ),
+                ),
+                if (selected)
+                  const Icon(Icons.check_circle, color: Color(0xffF97316), size: 20),
+              ],
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: selected ? Colors.white : const Color(0xff111315),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: selected ? const Color(0xffC9D0D5) : const Color(0xff7B8794),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _priceController.dispose();
     _notesController.dispose();
     _pickupController.dispose();
     _dropoffController.dispose();
-    _formScrollController
-      ..removeListener(_handleFormScroll)
-      ..dispose();
     _socket?.disconnect();
     super.dispose();
   }
@@ -242,9 +308,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (_destinationLocation == null) {
+    if (_destinationLocation == null && _dropoffController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('برجاء اختيار الوجهة')),
+        const SnackBar(content: Text('برجاء تحديد الوجهة على الخريطة أو كتابة العنوان')),
       );
       return;
     }
@@ -273,8 +339,8 @@ class _HomeScreenState extends State<HomeScreen> {
               : 'وجهتك',
           'pickupLat': _currentLocation!.latitude,
           'pickupLng': _currentLocation!.longitude,
-          'dropoffLat': _destinationLocation!.latitude,
-          'dropoffLng': _destinationLocation!.longitude,
+          'dropoffLat': _destinationLocation?.latitude,
+          'dropoffLng': _destinationLocation?.longitude,
           'proposedFare': double.parse(_priceController.text),
           'notes':
               _notesController.text.isNotEmpty ? _notesController.text : null,
@@ -295,6 +361,15 @@ class _HomeScreenState extends State<HomeScreen> {
             const SnackBar(content: Text('تم إرسال الطلب للسواقين! انتظر العروض...')),
           );
           _resetForm();
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OrderTrackingScreen(
+                orderId: tripId,
+                isTrip: true,
+              ),
+            ),
+          );
         }
       } else {
         setState(() {
@@ -405,6 +480,15 @@ class _HomeScreenState extends State<HomeScreen> {
             const SnackBar(content: Text('تم إنشاء طلب الشحن بنجاح!')),
           );
           _resetForm();
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OrderTrackingScreen(
+                orderId: data['order']['id'],
+                isTrip: false,
+              ),
+            ),
+          );
         }
       } else {
         setState(() {
@@ -569,9 +653,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final displayLocation = _currentLocation ?? _defaultLocation;
     final isLimousine = _selectedService == 'limousine';
-    final serviceColor = isLimousine
-        ? const Color(0xff2364aa)
-        : const Color(0xff16866b);
+    final serviceColor = const Color(0xff111315);
     final serviceTitle = isLimousine ? 'رحلة جديدة' : 'شحنة جديدة';
 
     return Directionality(
@@ -579,7 +661,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(serviceTitle),
-          backgroundColor: serviceColor,
+          backgroundColor: const Color(0xff111315),
           foregroundColor: Colors.white,
           elevation: 0,
           centerTitle: true,
@@ -621,101 +703,63 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        body: Column(
+        body: SingleChildScrollView(
+          child: Column(
           children: [
-            if (widget.showServiceSelector)
-              Container(
-                padding: const EdgeInsets.all(12),
+            if (widget.showServiceSelector) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
                 child: Row(
                   children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedService = 'limousine';
-                            _resetForm();
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: _selectedService == 'limousine'
-                                ? Colors.blue.shade800
-                                : Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.directions_car,
-                                color: _selectedService == 'limousine'
-                                    ? Colors.white
-                                    : Colors.black54,
-                                size: 28,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '🚘 ليموزين',
-                                style: TextStyle(
-                                  color: _selectedService == 'limousine'
-                                      ? Colors.white
-                                      : Colors.black54,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                    Container(
+                      width: 4,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: const Color(0xffF97316),
+                        borderRadius: BorderRadius.circular(4),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedService = 'shipping';
-                            _resetForm();
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: _selectedService == 'shipping'
-                                ? Colors.green.shade700
-                                : Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.inventory_2,
-                                color: _selectedService == 'shipping'
-                                    ? Colors.white
-                                    : Colors.black54,
-                                size: 28,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'شحن',
-                                style: TextStyle(
-                                  color: _selectedService == 'shipping'
-                                      ? Colors.white
-                                      : Colors.black54,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'ماذا تريد أن تفعل اليوم؟',
+                      style: TextStyle(
+                        color: Color(0xff111315),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ],
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildServiceCard(
+                        service: 'shipping',
+                        title: 'شحن',
+                        subtitle: 'توصيل آمن وسريع',
+                        icon: Icons.local_shipping_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildServiceCard(
+                        service: 'limousine',
+                        title: 'ليموزين',
+                        subtitle: 'رحلة مريحة لسيارتك',
+                        icon: Icons.directions_car_outlined,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             // ── Map area ──
-            Expanded(
-              flex: _isMapCollapsed ? 1 : 2,
+            SizedBox(
+              height: 368,
               child: Container(
                 margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 clipBehavior: Clip.antiAlias,
@@ -772,8 +816,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             polylines: [
                               flutter_map.Polyline(
                                 points: _routePoints,
-                                color: Colors.blue,
-                                strokeWidth: 5,
+                                color: const Color(0xffF97316),
+                                strokeWidth: 4,
                               ),
                             ],
                           ),
@@ -784,16 +828,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                 point: _currentLocation!,
                                 width: 40,
                                 height: 40,
-                                child: const Icon(Icons.my_location,
-                                    color: Colors.blue, size: 32),
+                                child: const _PremiumMapPin(),
                               ),
                             if (_destinationLocation != null)
                               flutter_map.Marker(
                                 point: _destinationLocation!,
                                 width: 40,
                                 height: 40,
-                                child: const Icon(Icons.location_on,
-                                    color: Colors.red, size: 36),
+                                child: const _PremiumMapPin(),
                               ),
                           ],
                         ),
@@ -824,6 +866,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       right: 12,
                       child: FloatingActionButton.small(
                         heroTag: 'recenter',
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xff111315),
                         onPressed: () {
                           _moveMapTo(_currentLocation!);
                         },
@@ -836,10 +880,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
 
             // ── Form area ──
-            Expanded(
-              flex: 3,
-              child: Container(
-                decoration: BoxDecoration(
+            Container(
+              decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(24),
@@ -851,10 +893,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         offset: const Offset(0, -5))
                   ],
                 ),
-                child: SingleChildScrollView(
-                  controller: _formScrollController,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Container(
@@ -962,7 +1003,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             hintText: 'عنوان الاستلام',
                               labelText: 'من',
                             prefixIcon: const Icon(Icons.location_on,
-                                color: Colors.blue),
+                                    color: const Color(0xffF97316)),
                             filled: true,
                             fillColor: Colors.grey.shade100,
                             border: OutlineInputBorder(
@@ -992,9 +1033,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           controller: _pickupController,
                           decoration: InputDecoration(
                             hintText: 'عنوان الاستلام',
-                              labelText: 'من',
+                            labelText: 'من',
                             prefixIcon: const Icon(Icons.location_on,
-                                color: Colors.blue),
+                              color: Color(0xffF97316)),
                             filled: true,
                             fillColor: Colors.grey.shade100,
                             border: OutlineInputBorder(
@@ -1007,7 +1048,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           controller: _dropoffController,
                           decoration: InputDecoration(
                             hintText: 'عنوان التسليم',
-                              labelText: 'إلى',
+                            labelText: 'إلى',
                             prefixIcon: const Icon(Icons.location_on,
                                 color: Colors.red),
                             filled: true,
@@ -1018,109 +1059,97 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: DropdownButtonFormField<String>(
-                                value: _shipmentType,
-                                decoration: InputDecoration(
-                                  labelText: 'نوع الشحنة',
-                                  prefixIcon: const Icon(Icons.inventory_2_outlined),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade100,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                ),
-                                items: const [
-                                  DropdownMenuItem(value: 'طرد', child: Text('طرد')),
-                                  DropdownMenuItem(value: 'مستندات', child: Text('مستندات')),
-                                  DropdownMenuItem(value: 'ظرف', child: Text('ظرف')),
-                                  DropdownMenuItem(value: 'أخرى', child: Text('أخرى')),
-                                ],
-                                onChanged: (value) {
-                                  if (value != null) {
-                                    setState(() => _shipmentType = value);
-                                  }
-                                },
-                              ),
+                        DropdownButtonFormField<String>(
+                          value: _shipmentType,
+                          decoration: InputDecoration(
+                            labelText: 'نوع الشحنة',
+                            prefixIcon: const Icon(Icons.inventory_2_outlined),
+                            filled: true,
+                            fillColor: Colors.grey.shade100,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _pickShippingDateTime,
-                                icon: const Icon(Icons.event_outlined),
-                                label: Text(
-                                  _shippingDateTime == null
-                                      ? 'موعد الاستلام'
-                                      : '${_shippingDateTime!.day}/${_shippingDateTime!.month} ${_shippingDateTime!.hour.toString().padLeft(2, '0')}:${_shippingDateTime!.minute.toString().padLeft(2, '0')}',
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(56),
-                                  foregroundColor: Colors.green.shade700,
-                                  side: BorderSide(color: Colors.grey.shade300),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'طرد', child: Text('طرد')),
+                            DropdownMenuItem(value: 'مستندات', child: Text('مستندات')),
+                            DropdownMenuItem(value: 'ظرف', child: Text('ظرف')),
+                            DropdownMenuItem(value: 'أخرى', child: Text('أخرى')),
                           ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() => _shipmentType = value);
+                            }
+                          },
                         ),
                         const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: DropdownButtonFormField<String>(
-                                value: _shipmentSize,
-                                decoration: InputDecoration(
-                                  labelText: 'حجم الشحنة',
-                                  prefixIcon: const Icon(Icons.straighten_outlined),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade100,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                ),
-                                items: const [
-                                  DropdownMenuItem(value: 'صغيرة', child: Text('صغيرة')),
-                                  DropdownMenuItem(value: 'متوسطة', child: Text('متوسطة')),
-                                  DropdownMenuItem(value: 'كبيرة', child: Text('كبيرة')),
-                                ],
-                                onChanged: (value) {
-                                  if (value != null) {
-                                    setState(() => _shipmentSize = value);
-                                  }
-                                },
-                              ),
+                        DropdownButtonFormField<String>(
+                          value: _shipmentSize,
+                          decoration: InputDecoration(
+                            labelText: 'حجم الشحنة',
+                            prefixIcon: const Icon(Icons.straighten_outlined),
+                            filled: true,
+                            fillColor: Colors.grey.shade100,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _pickShipmentImage,
-                                icon: Icon(_shipmentImage == null
-                                    ? Icons.add_a_photo_outlined
-                                    : Icons.check_circle_outline),
-                                label: Text(
-                                  _shipmentImage == null
-                                      ? 'صورة الشحنة'
-                                      : 'تم اختيار الصورة',
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(56),
-                                  foregroundColor: Colors.green.shade700,
-                                  side: BorderSide(color: Colors.grey.shade300),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'صغيرة', child: Text('صغيرة')),
+                            DropdownMenuItem(value: 'متوسطة', child: Text('متوسطة')),
+                            DropdownMenuItem(value: 'كبيرة', child: Text('كبيرة')),
                           ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() => _shipmentSize = value);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _pickShippingDateTime,
+                          icon: const Icon(Icons.event_outlined),
+                          label: Text(
+                            _shippingDateTime == null
+                                ? 'موعد الاستلام (اختياري)'
+                                : '${_shippingDateTime!.day}/${_shippingDateTime!.month} ${_shippingDateTime!.hour.toString().padLeft(2, '0')}:${_shippingDateTime!.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(56),
+                            foregroundColor: const Color(0xffF97316),
+                            side: BorderSide(color: Colors.grey.shade300),
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _pickShipmentImage,
+                          icon: Icon(_shipmentImage == null
+                              ? Icons.add_a_photo_outlined
+                              : Icons.check_circle_outline),
+                          label: Text(
+                            _shipmentImage == null
+                                ? 'إرفاق صورة للشحنة (اختياري)'
+                                : 'تم اختيار الصورة بنجاح',
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(56),
+                            foregroundColor: const Color(0xffF97316),
+                            side: BorderSide(color: Colors.grey.shade300),
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 12),
                       ],
@@ -1170,7 +1199,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 }
                               },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: serviceColor,
+                          backgroundColor: const Color(0xffF97316),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
@@ -1213,8 +1242,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: const Icon(Icons.access_time),
                           label: const Text('متابعة الطلب الحالي'),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.orange.shade800,
-                            side: BorderSide(color: Colors.orange.shade800),
+                            foregroundColor: const Color(0xffF97316),
+                            side: const BorderSide(color: Color(0xffF97316)),
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
@@ -1222,12 +1251,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ],
-                  ),
                 ),
               ),
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1240,6 +1269,46 @@ class ServiceDashboardScreen extends StatefulWidget {
 
   @override
   State<ServiceDashboardScreen> createState() => _ServiceDashboardScreenState();
+}
+
+class _PremiumMapPin extends StatelessWidget {
+  const _PremiumMapPin();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: const Color(0xffF97316),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 3),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xffF97316).withOpacity(.4),
+            blurRadius: 12,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Center(
+        child: Container(
+          width: 10,
+          height: 10,
+          decoration: const BoxDecoration(
+            color: Color(0xff111315),
+            shape: BoxShape.circle,
+          ),
+          child: const Center(
+            child: DecoratedBox(
+              decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              child: SizedBox(width: 4, height: 4),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ServiceDashboardScreenState extends State<ServiceDashboardScreen> {
@@ -1319,7 +1388,7 @@ class _ServiceDashboardScreenState extends State<ServiceDashboardScreen> {
     final isLimousine = widget.service == 'limousine';
     final title = isLimousine ? 'الدليفري' : 'داشبورد الشحن';
     final accentColor =
-        isLimousine ? Colors.blue.shade800 : Colors.green.shade700;
+        isLimousine ? const Color(0xff111315) : const Color(0xffF97316);
 
     final stats = [
       {'label': 'إجمالي الطلبات', 'value': '${_orders.length}'},

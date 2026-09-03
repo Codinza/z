@@ -17,6 +17,7 @@ export function initSocketServer(io) {
 
     socket.on('driver:ready', async (driverId) => {
       socket.join(`driver:${driverId}`);
+      socket.join('drivers');
       // Track this driver as online
       onlineDrivers.set(socket.id, driverId);
       console.log(`Driver ${driverId} is now online. Total online: ${onlineDrivers.size}`);
@@ -26,6 +27,7 @@ export function initSocketServer(io) {
         socket.emit('trip_request', {
           ...ride,
           rideId: ride.id,
+          status: ride.status || 'pending',
         });
       }
     });
@@ -80,9 +82,10 @@ export function initSocketServer(io) {
     socket.on('new_trip_request', (data) => {
       const { rideId, pickupLat, pickupLng, dropoffLat, dropoffLng, fareEstimate } = data;
       
-      // Broadcast to all online drivers
-      io.emit('trip_request', {
+      // Broadcast only to connected drivers
+      io.to('drivers').emit('trip_request', {
         rideId,
+        status: 'pending',
         pickupLat,
         pickupLng,
         dropoffLat,

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import '../../features/auth/auth_service.dart';
 import '../../features/auth/login_screen.dart';
+import '../../core/config/app_config.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -14,6 +16,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   bool _isLoading = true;
   String? _error;
   Timer? _refreshTimer;
+  socket_io.Socket? _socket;
 
   Future<void> _logout() async {
     await AuthService.logout();
@@ -44,6 +47,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   void initState() {
     super.initState();
     _fetchStats();
+    _initSocket();
     // Auto-refresh every 5 seconds
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _fetchStats();
@@ -53,7 +57,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _socket?.disconnect();
     super.dispose();
+  }
+
+  void _initSocket() {
+    _socket = socket_io.io(AppConfig.backendBaseUrl, <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': false,
+    });
+    _socket!.connect();
+    // Admin no longer listens to live driver trip requests.
+    // Those are now routed only to connected drivers.
   }
 
   Future<void> _fetchStats() async {

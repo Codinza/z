@@ -49,7 +49,7 @@ class AuthService {
     try {
       final response = await _dio.post('/api/auth/register', data: {
         'name': name, 'phone': phone, 'password': password,
-        'email': email, 'role': role,
+        'email': email?.trim().isEmpty == true ? null : email?.trim(), 'role': role,
         'carModel': carModel, 'carColor': carColor, 'carYear': carYear, 'plateNumber': plateNumber,
       });
       if (response.statusCode == 201) {
@@ -58,7 +58,16 @@ class AuthService {
       }
       return null;
     } on DioException catch (e) {
-      return e.response?.data;
+      final responseData = e.response?.data;
+      if (responseData is Map<String, dynamic>) {
+        return responseData;
+      }
+      return {
+        'error': e.type == DioExceptionType.connectionError ||
+                e.type == DioExceptionType.connectionTimeout
+            ? 'تعذر الاتصال بالخادم. تأكد من اتصال الإنترنت وحاول مرة أخرى.'
+            : 'فشل إنشاء الحساب. حاول مرة أخرى.',
+      };
     }
   }
 
@@ -112,8 +121,8 @@ class AuthService {
     final fallbackData = {
       'message': 'Guest login successful (offline fallback)',
       'user': fallbackUser,
-      'accessToken': 'local_guest_token',
-      'refreshToken': 'local_guest_refresh_token',
+      'accessToken': '',
+      'refreshToken': '',
     };
 
     await _saveAuthData(fallbackData);
@@ -170,9 +179,14 @@ class AuthService {
     return prefs.getString(_companyIdKey);
   }
 
+  static bool _looksLikeJwt(String token) {
+    final normalized = token.trim();
+    return normalized.isNotEmpty && normalized.split('.').length == 3;
+  }
+
   static Future<bool> isLoggedIn() async {
     final token = await getToken();
-    return token != null && token.isNotEmpty;
+    return token != null && token.isNotEmpty && _looksLikeJwt(token);
   }
 
   static Future<void> logout() async {

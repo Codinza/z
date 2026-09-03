@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'info_page_screen.dart';
 import 'contact_us_screen.dart';
+import '../auth/auth_service.dart';
+import '../auth/login_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -39,6 +41,21 @@ class SettingsScreen extends StatelessWidget {
               const SnackBar(content: Text('اللغة العربية هي اللغة الافتراضية حالياً')),
             );
           }),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('تسجيل الخروج', style: TextStyle(fontSize: 16, color: Colors.red)),
+            onTap: () async {
+              await AuthService.logout();
+              if (context.mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (_) => false,
+                );
+              }
+            },
+          ),
         ],
       ),
     );

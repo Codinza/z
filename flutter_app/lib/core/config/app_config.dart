@@ -1,8 +1,12 @@
-import 'package:flutter/foundation.dart';
 
 class AppConfig {
-  static const String _productionBackendUrl =
-      'https://zoon-api.onrender.com';
+  static const String _productionBackendUrl = 'https://zoon-api.onrender.com';
+
+  // Keep the local URL only as an override for debugging, but production builds
+  // should default to the live backend instead of the developer machine.
+  static const String _localBackendUrl = 'http://192.168.100.6:4000';
+
+  static String get localBackendUrl => _localBackendUrl;
 
   static String get backendBaseUrl {
     const envUrl = String.fromEnvironment(
@@ -16,11 +20,6 @@ class AppConfig {
 
     return _productionBackendUrl;
   }
-
-  static const String googleMapsApiKey = String.fromEnvironment(
-    'GOOGLE_MAPS_API_KEY',
-    defaultValue: '',
-  );
 
   /// Render free plan can take ~30s to wake up (cold start)
   static const Duration connectTimeout = Duration(seconds: 60);

@@ -110,11 +110,12 @@ class TripService {
 
     rides.set(tripId, ride);
 
-    // Emit new trip request to all drivers via socket
+    // Emit new trip request only to connected drivers
     if (io) {
-      io.emit('trip_request', {
+      io.to('drivers').emit('trip_request', {
         id: tripId,
         rideId: tripId,
+        status: 'pending',
         userName: ride.userName,
         pickupAddress,
         dropoffAddress,
@@ -192,7 +193,14 @@ class TripService {
   }
 
   async acceptTrip(rideId, driverId, offerAmount) {
-    const ride = rides.get(rideId);
+    let ride = rides.get(rideId);
+    if (!ride) {
+      const storedRide = await tripRepository.getTripById(rideId);
+      if (storedRide) {
+        ride = { ...storedRide };
+        rides.set(rideId, ride);
+      }
+    }
     if (!ride) throw new Error('Ride not found');
 
     const acceptedDriverId = driverId || 'driver_dummy_001';

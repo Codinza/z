@@ -6,9 +6,10 @@ plugins {
 }
 
 android {
-    namespace = "com.rideflow.app"
+    namespace = "com.zoon.rideflow"
     compileSdk = 35
     ndkVersion = "25.1.8937393"
+    def isAdminBuild = project.hasProperty('adminBuild')
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -22,7 +23,7 @@ android {
 
     defaultConfig {
         // RideFlow - Limousine & Shipping Platform
-        applicationId = "com.rideflow.app"
+        applicationId = isAdminBuild ? "com.zoon.admin" : "com.zoon.rideflow"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -30,6 +31,8 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
+
+    defaultConfig.manifestPlaceholders.appLabel = isAdminBuild ? 'Zoon Admin' : 'Zoon'
 
     signingConfigs {
         release {

@@ -70,7 +70,7 @@ class _DriverArchiveScreenState extends State<DriverArchiveScreen> {
                                 ),
                                 Text(
                                   '${trip['finalFare'] ?? trip['fareEstimate']} ج.م',
-                                  style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.bold),
+                                  style: const TextStyle(color: Color(0xffF97316), fontWeight: FontWeight.bold),
                                 ),
                               ],
                             ),

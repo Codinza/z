@@ -90,7 +90,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                 children: [
                   Card(
                     elevation: 4,
-                    color: _walletBalance < 0 ? Colors.red.shade50 : Colors.green.shade50,
+                    color: _walletBalance < 0 ? Colors.red.shade50 : const Color(0xfffff4df),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     child: Padding(
                       padding: const EdgeInsets.all(32.0),
@@ -106,7 +106,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                             style: TextStyle(
                               fontSize: 48,
                               fontWeight: FontWeight.bold,
-                              color: _walletBalance < 0 ? Colors.red : Colors.green,
+                              color: _walletBalance < 0 ? Colors.red : const Color(0xffF97316),
                             ),
                           ),
                           if (_walletBalance < -50)
@@ -130,7 +130,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                           label: 'أرباح اليوم',
                           value: '${_todayEarnings.toStringAsFixed(2)} ج.م',
                           icon: Icons.trending_up,
-                          color: Colors.green,
+                          color: const Color(0xffF97316),
                         ),
                       ),
                       const SizedBox(width: 12),

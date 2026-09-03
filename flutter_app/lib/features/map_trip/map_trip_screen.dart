@@ -6,7 +6,6 @@ import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_ti
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../../data/datasources/trip_remote_data_source.dart';
 import '../../data/repositories/trip_repository_impl.dart';
@@ -213,14 +212,11 @@ class _MapTripScreenState extends State<MapTripScreen> {
   Widget build(BuildContext context) {
     final pickup = pickupLocation ?? currentLocation ?? const LatLng(30.0444, 31.2357);
     final dropoff = dropoffLocation ?? const LatLng(29.9792, 31.1342);
-    final isMapsConfigured = AppConfig.googleMapsApiKey.trim().isNotEmpty;
-
     return Scaffold(
       appBar: AppBar(title: const Text('RideFlow Maps')),
       body: Stack(
         children: [
-          if (isMapsConfigured)
-            FlutterMap(
+          FlutterMap(
               mapController: _mapController,
               options: const MapOptions(
                 initialCenter: LatLng(30.0444, 31.2357),
@@ -230,32 +226,12 @@ class _MapTripScreenState extends State<MapTripScreen> {
               children: [
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.rideflow',
+                  userAgentPackageName: 'com.zoon.rideflow',
                   tileProvider: CancellableNetworkTileProvider(),
                 ),
                 MarkerLayer(markers: markers),
                 PolylineLayer(polylines: polylines),
               ],
-            )
-          else
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.deepPurple.shade50, Colors.white],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
-              child: const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'Map service is not configured for this environment.\nThe trip UI is still available and route estimates will work.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 18),
-                  ),
-                ),
-              ),
             ),
           Positioned(
             top: 16,

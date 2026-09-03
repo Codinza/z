@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
@@ -12,12 +13,20 @@ class ActiveTripScreen extends StatefulWidget {
   final String tripId;
   final double pickupLat;
   final double pickupLng;
+  final double? dropoffLat;
+  final double? dropoffLng;
+  final String? pickupAddress;
+  final String? dropoffAddress;
   
   const ActiveTripScreen({
     super.key,
     required this.tripId,
     required this.pickupLat,
     required this.pickupLng,
+    this.dropoffLat,
+    this.dropoffLng,
+    this.pickupAddress,
+    this.dropoffAddress,
   });
 
   @override
@@ -30,6 +39,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   late final LatLng _pickupLocation;
   socket_io.Socket? _socket;
   String _tripStatus = 'accepted';
+  List<LatLng> _routePoints = [];
 
   @override
   void initState() {
@@ -39,6 +49,23 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     _driverLocation = LatLng(widget.pickupLat + 0.005, widget.pickupLng + 0.005);
     _initSocket();
     _fetchCurrentStatus();
+    _loadRoute();
+  }
+
+  Future<void> _loadRoute() async {
+    final dropoffLat = widget.dropoffLat;
+    final dropoffLng = widget.dropoffLng;
+    if (dropoffLat == null || dropoffLng == null) return;
+    try {
+      final response = await Dio().get(
+        'https://router.project-osrm.org/route/v1/driving/${widget.pickupLng},${widget.pickupLat};$dropoffLng,$dropoffLat',
+        queryParameters: {'overview': 'full', 'geometries': 'geojson'},
+      );
+      final coordinates = response.data['routes']?[0]?['geometry']?['coordinates'];
+      if (coordinates is! List || !mounted) return;
+      final points = coordinates.whereType<List>().where((point) => point.length >= 2).map((point) => LatLng((point[1] as num).toDouble(), (point[0] as num).toDouble())).toList();
+      if (points.length > 1) setState(() => _routePoints = points);
+    } catch (_) {}
   }
 
   Future<void> _fetchCurrentStatus() async {
@@ -182,15 +209,15 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
               children: [
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.rideflow',
+                  userAgentPackageName: 'com.zoon.rideflow',
                   tileProvider: CancellableNetworkTileProvider(),
                 ),
                 if (_driverLocation != null)
                   PolylineLayer(
                     polylines: [
                       Polyline(
-                        points: [_driverLocation!, _pickupLocation],
-                        color: Colors.blue,
+                        points: _routePoints.length > 1 ? _routePoints : [_driverLocation!, _pickupLocation, if (widget.dropoffLat != null && widget.dropoffLng != null) LatLng(widget.dropoffLat!, widget.dropoffLng!)],
+                        color: const Color(0xffF97316),
                         strokeWidth: 4,
                       ),
                     ],
@@ -201,8 +228,15 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                       point: _pickupLocation,
                       width: 40,
                       height: 40,
-                      child: const Icon(Icons.person_pin_circle, color: Colors.green, size: 40),
+                      child: const Icon(Icons.person_pin_circle, color: Color(0xffF97316), size: 40),
                     ),
+                    if (widget.dropoffLat != null && widget.dropoffLng != null)
+                      Marker(
+                        point: LatLng(widget.dropoffLat!, widget.dropoffLng!),
+                        width: 40,
+                        height: 40,
+                        child: const Icon(Icons.flag, color: Color(0xffF97316), size: 34),
+                      ),
                     if (_driverLocation != null)
                       Marker(
                         point: _driverLocation!,
