@@ -310,7 +310,7 @@ export const getOrderDetails = async (req, res) => {
 
 export const approveCustomerPrice = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const orderId = req.params.orderId || req.params.id;
     const customerId = req.user?.id;
 
     if (!customerId) {
@@ -345,14 +345,22 @@ export const approveCustomerPrice = async (req, res) => {
     });
 
     // Create notification for company
-    await prisma.notification.create({
-      data: {
-        companyId: order.companyId,
-        title: 'Price Approved',
-        body: `Customer approved the offered price of ${order.companyOfferPrice} EGP`,
-        type: 'price_approved',
-        orderId: orderId,
-      },
+    if (order.companyId) {
+      await prisma.notification.create({
+        data: {
+          companyId: order.companyId,
+          title: 'Price Approved',
+          body: `Customer approved the offered price of ${order.companyOfferPrice} EGP`,
+          type: 'price_approved',
+          orderId: orderId,
+        },
+      });
+    }
+
+    emitOrderStatusChanged({
+      orderId,
+      status: 'CUSTOMER_APPROVED',
+      price: updatedOrder.finalPrice,
     });
 
     res.json({
@@ -367,7 +375,7 @@ export const approveCustomerPrice = async (req, res) => {
 
 export const rejectCustomerPrice = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const orderId = req.params.orderId || req.params.id;
     const { reason } = req.body;
     const customerId = req.user?.id;
 
@@ -397,19 +405,27 @@ export const rejectCustomerPrice = async (req, res) => {
       where: { id: orderId },
       data: {
         status: 'CUSTOMER_REJECTED',
-        rejectionReason: reason || null,
+        rejectionReason: reason || 'Customer rejected price',
       },
     });
 
     // Create notification for company
-    await prisma.notification.create({
-      data: {
-        companyId: order.companyId,
-        title: 'Price Rejected',
-        body: `Customer rejected the offered price${reason ? ': ' + reason : ''}`,
-        type: 'price_rejected',
-        orderId: orderId,
-      },
+    if (order.companyId) {
+      await prisma.notification.create({
+        data: {
+          companyId: order.companyId,
+          title: 'Price Rejected',
+          body: `Customer rejected the offered price${reason ? ': ' + reason : ''}`,
+          type: 'price_rejected',
+          orderId: orderId,
+        },
+      });
+    }
+
+    emitOrderStatusChanged({
+      orderId,
+      status: 'CUSTOMER_REJECTED',
+      reason: reason || 'Customer rejected price',
     });
 
     res.json({
@@ -424,7 +440,7 @@ export const rejectCustomerPrice = async (req, res) => {
 
 export const confirmOrder = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const orderId = req.params.orderId || req.params.id;
     const userId = req.user?.id;
 
     const order = await prisma.order.findUnique({
@@ -459,6 +475,12 @@ export const confirmOrder = async (req, res) => {
       },
     });
 
+    emitOrderStatusChanged({
+      orderId,
+      status: 'CONFIRMED',
+      price: updatedOrder.finalPrice,
+    });
+
     res.json({
       message: 'Order confirmed',
       order: updatedOrder,
@@ -471,7 +493,7 @@ export const confirmOrder = async (req, res) => {
 
 export const completeOrder = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const orderId = req.params.orderId || req.params.id;
     const companyId = req.user?.companyId;
 
     if (!companyId) {
@@ -514,6 +536,11 @@ export const completeOrder = async (req, res) => {
       },
     });
 
+    emitOrderStatusChanged({
+      orderId,
+      status: 'COMPLETED',
+    });
+
     res.json({
       message: 'Order completed',
       order: updatedOrder,
@@ -526,7 +553,7 @@ export const completeOrder = async (req, res) => {
 
 export const cancelOrder = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const orderId = req.params.orderId || req.params.id;
     const { reason } = req.body;
     const userId = req.user?.id;
 
@@ -563,6 +590,12 @@ export const cancelOrder = async (req, res) => {
         },
       });
     }
+
+    emitOrderStatusChanged({
+      orderId,
+      status: 'CANCELLED',
+      reason: reason || null,
+    });
 
     res.json({
       message: 'Order cancelled',

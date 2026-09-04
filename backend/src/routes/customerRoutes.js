@@ -17,6 +17,12 @@ export function customerRoutes() {
   // Get customer trips history
   router.get('/trips-history', customerController.getTripsHistory);
 
+  // Get customer recurring trips
+  router.get('/recurring-trips', customerController.getRecurringTrips);
+
+  // Update customer profile
+  router.put('/profile', customerController.updateProfile);
+
   // Add funds to wallet
   router.post('/add-funds', customerController.addFunds);
 

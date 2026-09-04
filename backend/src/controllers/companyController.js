@@ -560,7 +560,7 @@ export const sendCounterOffer = async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    if (order.companyId !== companyId) {
+    if (order.companyId && order.companyId !== companyId) {
       return res
         .status(403)
         .json({ error: 'You do not have access to this order' });
@@ -583,6 +583,7 @@ export const sendCounterOffer = async (req, res) => {
       data: {
         status: 'PRICE_SENT',
         companyOfferPrice: offeredPrice,
+        companyId: order.companyId || companyId,
       },
     });
 

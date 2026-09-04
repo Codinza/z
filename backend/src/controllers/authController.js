@@ -167,3 +167,39 @@ export const getProfile = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch profile' });
   }
 };
+
+export const changePassword = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: 'يرجى إدخال كلمة المرور الحالية والجديدة' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'كلمة المرور الجديدة يجب أن لا تقل عن 6 أحرف' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ error: 'المستخدم غير موجود' });
+    }
+
+    const isValid = await bcrypt.compare(oldPassword, user.password);
+    if (!isValid) {
+      return res.status(400).json({ error: 'كلمة المرور الحالية غير صحيحة' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح' });
+  } catch (error) {
+    console.error('Change Password Error:', error);
+    res.status(500).json({ error: 'حدث خطأ أثناء تغيير كلمة المرور' });
+  }
+};
