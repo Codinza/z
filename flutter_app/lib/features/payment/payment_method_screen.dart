@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class PaymentMethodScreen extends StatefulWidget {
   const PaymentMethodScreen({super.key});
@@ -10,124 +11,90 @@ class PaymentMethodScreen extends StatefulWidget {
 class PaymentMethodScreenState extends State<PaymentMethodScreen> {
   String _selectedMethod = 'cash';
   final _formKey = GlobalKey<FormState>();
-  final _cardNumberController = TextEditingController();
-  final _cardNameController = TextEditingController();
-  final _expiryController = TextEditingController();
-  final _cvvController = TextEditingController();
-  final _walletPhoneController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedMethod();
+  }
+
+  Future<void> _loadSavedMethod() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('preferred_payment_method');
+    if (saved != null && mounted) {
+      setState(() => _selectedMethod = saved);
+    }
+  }
+
+  Future<void> _saveMethod(String method) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('preferred_payment_method', method);
+  }
 
   @override
   void dispose() {
-    _cardNumberController.dispose();
-    _cardNameController.dispose();
-    _expiryController.dispose();
-    _cvvController.dispose();
-    _walletPhoneController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('طريقة الدفع'), centerTitle: true),
-      body: Form(
-        key: _formKey,
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: const Color(0xff0a0a0a),
+        appBar: AppBar(
+          backgroundColor: const Color(0xff111315),
+          elevation: 0,
+          title: const Text('طرق الدفع',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold)),
+          centerTitle: true,
+        ),
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(18),
             children: [
-            const Text(
-              'اختر طريقة الدفع المناسبة لك',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            _buildPaymentOption('cash', 'الدفع نقداً', Icons.money),
-            const SizedBox(height: 10),
-            _buildPaymentOption('card', 'البطاقة البنكية', Icons.credit_card),
-            const SizedBox(height: 10),
-            _buildPaymentOption('wallet', 'المحفظة الإلكترونية', Icons.account_balance_wallet),
-            if (_selectedMethod == 'card') ...[
-              const SizedBox(height: 16),
-              _buildField(_cardNumberController, 'رقم البطاقة', Icons.credit_card,
-                  keyboardType: TextInputType.number, validator: (value) {
-                final digits = value?.replaceAll(' ', '') ?? '';
-                return digits.length < 12 ? 'أدخل رقم بطاقة صحيح' : null;
-              }),
-              const SizedBox(height: 10),
-              _buildField(_cardNameController, 'اسم حامل البطاقة', Icons.person_outline),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildField(_expiryController, 'MM/YY', Icons.date_range,
-                        validator: (value) => value == null || value.length < 4
-                            ? 'أدخل تاريخ الانتهاء'
-                            : null),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildField(_cvvController, 'CVV', Icons.lock_outline,
-                        keyboardType: TextInputType.number,
-                        obscureText: true,
-                        validator: (value) => value == null || value.length < 3
-                            ? 'أدخل CVV'
-                            : null),
-                  ),
-                ],
+              const Text(
+                'اختر وسيلة الدفع المفضلة لديك',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white),
               ),
-            ],
-            if (_selectedMethod == 'wallet') ...[
               const SizedBox(height: 16),
-              _buildField(_walletPhoneController, 'رقم هاتف المحفظة', Icons.phone,
-                  keyboardType: TextInputType.phone,
-                  validator: (value) => value == null || value.length < 10
-                      ? 'أدخل رقم هاتف صحيح'
-                      : null),
-            ],
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: () {
+              _buildPaymentOption(
+                  'cash', 'الدفع نقداً (كاش)', Icons.money_rounded),
+              const SizedBox(height: 36),
+              ElevatedButton(
+                onPressed: () async {
                   if (!_formKey.currentState!.validate()) return;
+                  await _saveMethod(_selectedMethod);
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      backgroundColor: Colors.green,
+                      content: Text('تم حفظ وسيلة الدفع بنجاح'),
+                    ),
+                  );
                   Navigator.pop(context, _selectedMethod);
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
+                  backgroundColor: const Color(0xffF97316),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(52),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                      borderRadius: BorderRadius.circular(14)),
                 ),
-                child: const Text('تأكيد', style: TextStyle(fontSize: 18, color: Colors.white)),
+                child: const Text('تأكيد وحفظ',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-      ),
-    );
-  }
-
-  Widget _buildField(
-    TextEditingController controller,
-    String label,
-    IconData icon, {
-    TextInputType? keyboardType,
-    bool obscureText = false,
-    String? Function(String?)? validator,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      obscureText: obscureText,
-      validator: validator ?? (value) => value == null || value.trim().isEmpty
-          ? 'هذا الحقل مطلوب'
-          : null,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
@@ -142,25 +109,51 @@ class PaymentMethodScreenState extends State<PaymentMethodScreen> {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.white,
-          border: Border.all(color: isSelected ? Colors.blue : Colors.grey.shade300, width: 2),
-          borderRadius: BorderRadius.circular(10),
+          color: isSelected
+              ? const Color(0xffF97316).withOpacity(0.12)
+              : const Color(0xff111315),
+          border: Border.all(
+            color:
+                isSelected ? const Color(0xffF97316) : const Color(0xff2A2D33),
+            width: isSelected ? 1.5 : 1,
+          ),
+          borderRadius: BorderRadius.circular(14),
         ),
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
         child: Row(
           children: [
-            Icon(icon, color: isSelected ? Colors.blue : Colors.grey, size: 30),
-            const SizedBox(width: 20),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected ? Colors.blue : Colors.black87,
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? const Color(0xffF97316).withOpacity(0.2)
+                    : const Color(0xff1A1D21),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon,
+                  color: isSelected
+                      ? const Color(0xffF97316)
+                      : const Color(0xff94A3B8),
+                  size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected ? Colors.white : const Color(0xffCBD5E1),
+                ),
               ),
             ),
-            const Spacer(),
-            if (isSelected) const Icon(Icons.check_circle, color: Colors.blue),
+            if (isSelected)
+              const Icon(Icons.check_circle_rounded,
+                  color: Color(0xffF97316), size: 22)
+            else
+              const Icon(Icons.radio_button_unchecked,
+                  color: Color(0xff64748B), size: 22),
           ],
         ),
       ),
