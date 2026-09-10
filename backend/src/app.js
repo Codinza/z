@@ -33,6 +33,27 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use((req, res, next) => { console.log('[REQ] ' + req.method + ' ' + req.url, req.body); next(); });
 
+app.get('/privacy-policy', (_, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>سياسة خصوصية Zoon</title></head>
+<body style="font-family:Arial,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;line-height:1.8">
+  <h1>سياسة خصوصية تطبيق Zoon</h1>
+  <p>نحترم خصوصيتك ونجمع الحد الأدنى من البيانات اللازمة لتشغيل خدمات حجز الرحلات والشحن.</p>
+  <h2>البيانات التي نجمعها</h2>
+  <p>قد نجمع الاسم ورقم الهاتف وبيانات الحساب ومعلومات الطلبات والموقع الجغرافي عند استخدام ميزات الحجز والتتبع.</p>
+  <h2>طريقة استخدام البيانات</h2>
+  <p>نستخدم البيانات لتسجيل الدخول، تنفيذ الطلبات، تحسين الخدمة، والتواصل معك بشأن رحلاتك وطلباتك.</p>
+  <h2>المشاركة والحماية</h2>
+  <p>لا نبيع بياناتك. قد تتم مشاركة البيانات اللازمة مع السائق أو الشركة لتنفيذ الطلب. تُرسل البيانات عبر اتصال HTTPS وتُحفظ وفق ضوابط الوصول.</p>
+  <h2>الموقع الجغرافي</h2>
+  <p>يُستخدم الموقع لتحديد الرحلة والتتبع وتقديم الخدمة. يمكنك إيقاف إذن الموقع من إعدادات جهازك، وقد تتوقف بعض الميزات عن العمل.</p>
+  <h2>حقوقك</h2>
+  <p>يمكنك طلب تحديث بياناتك أو حذف حسابك عبر التواصل مع دعم Zoon.</p>
+  <p>آخر تحديث: 10 سبتمبر 2026</p>
+</body></html>`);
+});
+
 // Enhanced health check - verifies database connectivity
 app.get('/api/health', async (_, res) => {
   let dbStatus = 'unknown';
