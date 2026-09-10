@@ -13,6 +13,7 @@ export const customerController = {
           name: true,
           phone: true,
           email: true,
+          profileImage: true,
           walletBalance: true,
           createdAt: true,
         },
@@ -408,7 +409,7 @@ export const customerController = {
   updateProfile: async (req, res) => {
     try {
       const userId = req.user?.id || req.user?.userId;
-      const { name, email, phone } = req.body;
+      const { name, email, phone, profileImage } = req.body;
 
       const updateData = {};
       if (name && typeof name === 'string' && name.trim().length > 0) {
@@ -420,6 +421,9 @@ export const customerController = {
       if (phone && typeof phone === 'string' && phone.trim().length > 0) {
         updateData.phone = phone.trim();
       }
+      if (typeof profileImage === 'string' && profileImage.startsWith('data:image/')) {
+        updateData.profileImage = profileImage;
+      }
 
       const updatedUser = await prisma.user.update({
         where: { id: userId },
@@ -429,6 +433,7 @@ export const customerController = {
           name: true,
           phone: true,
           email: true,
+          profileImage: true,
           role: true,
           walletBalance: true,
           createdAt: true,

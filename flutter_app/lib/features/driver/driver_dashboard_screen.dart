@@ -383,6 +383,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               dropoffLng: (trip['dropoffLng'] as num?)?.toDouble(),
               pickupAddress: trip['pickupAddress']?.toString(),
               dropoffAddress: trip['dropoffAddress']?.toString(),
+              customerName:
+                  (trip['userName'] ?? trip['customerName'])?.toString(),
+              customerImageUrl:
+                  (trip['customerImageUrl'] ?? trip['userImageUrl'])
+                      ?.toString(),
             ),
           ),
         );
@@ -517,7 +522,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xffF3F6F8),
+        backgroundColor: const Color(0xff0A0A0A),
         body: SafeArea(
           child: Column(
             children: [
@@ -546,7 +551,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       decoration: const BoxDecoration(
-        color: Color(0xff172B3A),
+        color: Color(0xff121620),
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
       ),
       child: Column(
@@ -565,7 +570,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       SizedBox(height: 4),
                       Text('تشغيل الرحلات الفاخرة',
                           style: TextStyle(
-                              color: Color(0xffB7C5D1), fontSize: 13)),
+                              color: Color(0xff94A3B8), fontSize: 13)),
                     ]),
               ),
               IconButton(
@@ -617,16 +622,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   size: 72, color: Color(0xff9AA9B5)),
               const SizedBox(height: 18),
               const Center(
-                  child: Text('لا توجد طلبات جديدة حالياً',
-                      style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xff172B3A)))),
+                child: Text(
+                  'لا توجد طلبات جديدة حالياً',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
               const SizedBox(height: 8),
               Center(
-                  child: Text('آخر تحديث: الآن',
-                      style: TextStyle(
-                          fontSize: 13, color: Colors.blueGrey.shade500))),
+                child: Text('آخر تحديث: الآن',
+                    style: const TextStyle(
+                        fontSize: 13, color: Color(0xff94A3B8))),
+              ),
               const SizedBox(height: 18),
               Center(
                   child: OutlinedButton.icon(
@@ -665,14 +675,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         final vehicleType = trip['vehicleType']?.toString() ?? 'VIP Sedan';
 
         return Card(
-          elevation: 1,
+          color: const Color(0xff121620),
+          elevation: 0,
           margin: const EdgeInsets.only(bottom: 12),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
             side: BorderSide(
               color: status == 'pending'
-                  ? const Color(0xffE1E8ED)
-                  : const Color(0xffD6A84F),
+                  ? const Color(0xff252E3E)
+                  : const Color(0xffF97316),
               width: 1,
             ),
           ),
@@ -690,23 +701,27 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             style: const TextStyle(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w800,
-                                color: Color(0xff172B3A)))),
+                                color: Colors.white))),
                     Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                            color: status == 'pending'
-                                ? const Color(0xfffff4df)
-                                : const Color(0xffE7F5EC),
-                            borderRadius: BorderRadius.circular(20)),
-                        child: Text(
-                            status == 'pending' ? 'جديد' : 'الرحلة الحالية',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: status == 'pending'
-                                    ? const Color(0xffA16207)
-                                    : const Color(0xff15803D)))),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: status == 'pending'
+                            ? const Color(0xff2D210F)
+                            : const Color(0xff123022),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        status == 'pending' ? 'جديد' : 'الرحلة الحالية',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: status == 'pending'
+                              ? const Color(0xffF97316)
+                              : const Color(0xff4ADE80),
+                        ),
+                      ),
+                    ),
                     if (status != 'pending' &&
                         destLat != null &&
                         destLng != null)
@@ -715,8 +730,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         icon: const Icon(Icons.directions, size: 18),
                         label: const Text('الاتجاهات'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade100,
-                          foregroundColor: Colors.blue.shade900,
+                          backgroundColor: const Color(0xff252E3E),
+                          foregroundColor: const Color(0xffF97316),
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
                         ),
@@ -724,19 +739,28 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text('العميل: ${trip['userName'] ?? 'User Dummy'}',
-                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    _customerAvatar(trip),
+                    const SizedBox(width: 9),
+                    Text('العميل: ${trip['userName'] ?? 'عميل'}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, color: Colors.white)),
+                  ],
+                ),
                 const SizedBox(height: 6),
                 Row(children: [
                   Icon(Icons.directions_car_outlined,
                       size: 17, color: Colors.blueGrey.shade600),
                   const SizedBox(width: 5),
                   Text('$vehicleType  •  $bookingType',
-                      style: TextStyle(
-                          color: Colors.blueGrey.shade700, fontSize: 13))
+                      style: const TextStyle(
+                          color: Color(0xff94A3B8), fontSize: 13))
                 ]),
-                Text('من: ${trip['pickupAddress'] ?? 'غير محدد'}'),
-                Text('إلى: ${trip['dropoffAddress'] ?? 'غير محدد'}'),
+                Text('من: ${trip['pickupAddress'] ?? 'غير محدد'}',
+                    style: const TextStyle(color: Color(0xffE2E8F0))),
+                Text('إلى: ${trip['dropoffAddress'] ?? 'غير محدد'}',
+                    style: const TextStyle(color: Color(0xffE2E8F0))),
                 Text(
                     'المسافة: ${trip['distanceKm']?.toStringAsFixed(1) ?? '0'} كم'),
                 if (trip['fareEstimate'] != null || ageMinutes != null) ...[
@@ -748,7 +772,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             style: const TextStyle(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w800,
-                                color: Color(0xff15803D))),
+                                color: Color(0xff4ADE80))),
                         if (ageMinutes != null)
                           Text('منذ $ageMinutes دقيقة',
                               style: TextStyle(
@@ -766,21 +790,27 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     if (trip['areaType'] != null)
                       Chip(
                           label: Text(trip['areaType'],
-                              style: const TextStyle(fontSize: 12)),
+                              style: const TextStyle(
+                                  fontSize: 12, color: Color(0xffE2E8F0))),
                           padding: EdgeInsets.zero,
-                          backgroundColor: Colors.grey.shade100),
+                          backgroundColor: const Color(0xff252E3E),
+                          side: BorderSide.none),
                     if (trip['vehicleType'] != null)
                       Chip(
                           label: Text(trip['vehicleType'],
-                              style: const TextStyle(fontSize: 12)),
+                              style: const TextStyle(
+                                  fontSize: 12, color: Color(0xffE2E8F0))),
                           padding: EdgeInsets.zero,
-                          backgroundColor: Colors.blue.shade50),
+                          backgroundColor: const Color(0xff252E3E),
+                          side: BorderSide.none),
                     if (trip['tripType'] != null)
                       Chip(
                           label: Text(trip['tripType'],
-                              style: const TextStyle(fontSize: 12)),
+                              style: const TextStyle(
+                                  fontSize: 12, color: Color(0xffF97316))),
                           padding: EdgeInsets.zero,
-                          backgroundColor: Colors.orange.shade50),
+                          backgroundColor: const Color(0xff2D210F),
+                          side: BorderSide.none),
                   ],
                 ),
                 if (trip['notes'] != null &&
@@ -903,7 +933,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                   size: 18),
                               label: const Text('قبول الطلب'),
                               style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xff15803D),
+                                  backgroundColor: const Color(0xffF97316),
                                   foregroundColor: Colors.white),
                             ),
                           ),
@@ -915,7 +945,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                   size: 18),
                               label: const Text('تفاصيل'),
                               style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xff172B3A)),
+                                  foregroundColor: const Color(0xff0A0A0A)),
                             ),
                           ),
                         ],
@@ -1057,5 +1087,27 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         );
       },
     );
+  }
+
+  Widget _customerAvatar(Map<String, dynamic> trip) {
+    final image =
+        (trip['customerImageUrl'] ?? trip['userImageUrl'])?.toString();
+    if (image == null || image.isEmpty) {
+      return const CircleAvatar(
+        radius: 20,
+        backgroundColor: Color(0xff252E3E),
+        child: Icon(Icons.person, color: Color(0xffF97316)),
+      );
+    }
+    try {
+      final bytes = base64Decode(image.split(',').last);
+      return CircleAvatar(radius: 20, backgroundImage: MemoryImage(bytes));
+    } catch (_) {
+      return const CircleAvatar(
+        radius: 20,
+        backgroundColor: Color(0xff252E3E),
+        child: Icon(Icons.person, color: Color(0xffF97316)),
+      );
+    }
   }
 }

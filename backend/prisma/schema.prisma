@@ -13,6 +13,7 @@ model User {
   name            String
   phone           String   @unique
   email           String?  @unique
+  profileImage    String?  @db.Text
   password        String
   role            String   @default("customer")  // customer, driver, admin, company, super_admin
   walletBalance   Float    @default(0.0)

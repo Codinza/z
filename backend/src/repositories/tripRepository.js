@@ -6,7 +6,10 @@ class TripRepository {
   }
 
   async listTrips() {
-    return prisma.trip.findMany({ orderBy: { createdAt: 'desc' } });
+    return prisma.trip.findMany({
+      include: { user: { select: { name: true, profileImage: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async listTripsByDriver(driverId) {

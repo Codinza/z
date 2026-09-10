@@ -42,7 +42,12 @@ class TripService {
     const memoryTrips = Array.from(rides.values());
     try {
       const storedTrips = await tripRepository.listTrips();
-      const byId = new Map(storedTrips.map((trip) => [trip.id, trip]));
+      const normalizedTrips = storedTrips.map(({ user, ...trip }) => ({
+        ...trip,
+        userName: user?.name ?? trip.userName,
+        customerImageUrl: user?.profileImage ?? null,
+      }));
+      const byId = new Map(normalizedTrips.map((trip) => [trip.id, trip]));
       for (const trip of memoryTrips) byId.set(trip.id, trip);
       return Array.from(byId.values()).sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
@@ -110,9 +115,9 @@ class TripService {
 
     rides.set(tripId, ride);
 
-    // Emit new trip request only to connected drivers
+    // Emit new trip request to connected drivers and globally (for admin/monitoring)
     if (io) {
-      io.to('drivers').emit('trip_request', {
+      const tripRequestPayload = {
         id: tripId,
         rideId: tripId,
         status: 'pending',
@@ -129,7 +134,9 @@ class TripService {
         vehicleType: ride.vehicleType,
         tripType: ride.tripType,
         notes: ride.notes,
-      });
+      };
+      io.to('drivers').emit('trip_request', tripRequestPayload);
+      io.emit('trip_request', tripRequestPayload);
     }
 
     try {
@@ -528,7 +535,7 @@ class TripService {
 
     // Notify the accepted driver
     if (io) {
-      io.to(`driver:${driverId}`).emit('offer_accepted', {
+      const offerAcceptedPayload = {
         rideId,
         status: 'accepted',
         driverId,
@@ -541,7 +548,9 @@ class TripService {
         dropoffLat: ride.dropoffLat,
         dropoffLng: ride.dropoffLng,
         fareAmount: offer.offerAmount,
-      });
+      };
+      io.to(`driver:${driverId}`).emit('offer_accepted', offerAcceptedPayload);
+      io.emit('offer_accepted', offerAcceptedPayload);
 
       // Notify ALL clients that this trip is taken (so other drivers remove it)
       io.emit('trip_status_changed', {
