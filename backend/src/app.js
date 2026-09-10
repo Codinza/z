@@ -54,6 +54,19 @@ app.get('/privacy-policy', (_, res) => {
 </body></html>`);
 });
 
+app.get('/account-deletion', (_, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>طلب حذف حساب Zoon</title></head>
+<body style="font-family:Arial,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;line-height:1.8">
+  <h1>طلب حذف حساب Zoon</h1>
+  <p>لحذف حسابك والبيانات المرتبطة به، أرسل رسالة من البريد المرتبط بحسابك إلى:</p>
+  <p><a href="mailto:ayman01aay@gmail.com?subject=Zoon%20account%20deletion%20request">ayman01aay@gmail.com</a></p>
+  <p>اكتب رقم الهاتف أو البريد الإلكتروني المرتبط بالحساب. سنراجع الطلب ونتواصل معك للتأكد من ملكية الحساب قبل حذف البيانات.</p>
+  <p>قد نحتفظ ببعض البيانات إذا كان ذلك مطلوبًا قانونيًا أو لمنع الاحتيال، ثم نحذفها عند انتهاء سبب الاحتفاظ.</p>
+</body></html>`);
+});
+
 // Enhanced health check - verifies database connectivity
 app.get('/api/health', async (_, res) => {
   let dbStatus = 'unknown';
