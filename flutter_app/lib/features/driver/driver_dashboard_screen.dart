@@ -562,7 +562,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Dispatch Center',
+                      Text('Zoon',
                           style: TextStyle(
                               color: Colors.white,
                               fontSize: 22,
@@ -762,7 +762,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 Text('إلى: ${trip['dropoffAddress'] ?? 'غير محدد'}',
                     style: const TextStyle(color: Color(0xffE2E8F0))),
                 Text(
-                    'المسافة: ${trip['distanceKm']?.toStringAsFixed(1) ?? '0'} كم'),
+                    'المسافة: ${trip['distanceKm']?.toStringAsFixed(1) ?? '0'} كم',
+                    style: const TextStyle(
+                        color: Color(0xffCBD5E1),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600)),
                 if (trip['fareEstimate'] != null || ageMinutes != null) ...[
                   const SizedBox(height: 6),
                   Row(
@@ -772,14 +776,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             style: const TextStyle(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w800,
-                                color: Color(0xff4ADE80))),
+                                color: Color(0xffF97316))),
                         if (ageMinutes != null)
                           Text('منذ $ageMinutes دقيقة',
                               style: TextStyle(
                                   fontSize: 12,
                                   color: ageMinutes > 10
                                       ? const Color(0xffB42318)
-                                      : Colors.blueGrey.shade600))
+                                      : const Color(0xff94A3B8)))
                       ]),
                 ],
                 const SizedBox(height: 8),
