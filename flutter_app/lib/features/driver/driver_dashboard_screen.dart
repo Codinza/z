@@ -392,8 +392,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (response.statusCode == 200 && mounted) {
         final index = _incomingTrips.indexWhere(
             (item) => (item['id'] ?? item['rideId']).toString() == tripId);
-        if (index != -1)
+        if (index != -1) {
           setState(() => _incomingTrips[index]['status'] = 'accepted');
+        }
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -410,9 +411,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         );
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('فشل قبول الطلب: $e')));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -547,7 +549,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               Expanded(
                 child: Stack(
                   children: [
-                    _buildIncomingTripsList(),
+                    _buildPremiumDispatchWorkspace(),
                     if (_isLoading)
                       const Center(
                           child: CircularProgressIndicator(
@@ -563,7 +565,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Widget _buildDispatchHeader() {
-    final isConnected = _socket?.connected == true;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
@@ -594,49 +595,451 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   icon:
                       const Icon(Icons.notifications_none, color: Colors.white),
                   onPressed: () {}),
-              IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.white),
-                  onPressed: _fetchAvailableTrips),
             ],
           ),
-          const SizedBox(height: 16),
-          Row(children: [
-            Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                    color: isConnected
-                        ? const Color(0xff42D392)
-                        : const Color(0xffF59E0B),
-                    shape: BoxShape.circle)),
-            const SizedBox(width: 7),
-            Text(isConnected ? 'متصل بالخادم مباشرة' : 'جاري الاتصال بالخادم',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600)),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-              decoration: BoxDecoration(
-                color: const Color(0xffD6A84F).withOpacity(.12),
-                borderRadius: BorderRadius.circular(20),
-                border:
-                    Border.all(color: const Color(0xffD6A84F).withOpacity(.35)),
-              ),
-              child: Text(
-                  '${_incomingTrips.where((trip) => trip['status'] == 'pending').length} طلبات جديدة',
-                  style: const TextStyle(
-                      color: Color(0xffE4BE67),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12)),
-            ),
-          ]),
         ],
       ),
     );
   }
 
+  Widget _buildPremiumDispatchWorkspace() {
+    if (_incomingTrips.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _fetchAvailableTrips,
+        color: const Color(0xffD6A84F),
+        backgroundColor: const Color(0xff17232D),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 170),
+            Icon(Icons.inbox_rounded, size: 64, color: Color(0xff536A7B)),
+            SizedBox(height: 18),
+            Center(
+              child: Text('لا توجد طلبات جديدة حالياً',
+                  style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white)),
+            ),
+            SizedBox(height: 8),
+            Center(
+              child: Text('اسحب لأسفل لتحديث الطلبات',
+                  style: TextStyle(fontSize: 13, color: Color(0xff8FA4B4))),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _fetchAvailableTrips,
+      color: const Color(0xffD6A84F),
+      backgroundColor: const Color(0xff17232D),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: MediaQuery.of(context).size.height - 150,
+            child: PageView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _incomingTrips.length,
+              itemBuilder: (context, index) {
+                final trip = _incomingTrips[index];
+                return _buildPremiumTripPage(trip, index);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPremiumTripPage(Map<String, dynamic> trip, int index) {
+    final tripId = trip['id'] ?? trip['rideId'];
+    final status = trip['status'] ?? 'pending';
+    final createdAt = DateTime.tryParse(trip['createdAt']?.toString() ?? '');
+    final ageMinutes = createdAt == null
+        ? null
+        : DateTime.now().difference(createdAt.toLocal()).inMinutes;
+    final pickupLat = (trip['pickupLat'] as num?)?.toDouble();
+    final pickupLng = (trip['pickupLng'] as num?)?.toDouble();
+    final dropoffLat = (trip['dropoffLat'] as num?)?.toDouble();
+    final dropoffLng = (trip['dropoffLng'] as num?)?.toDouble();
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: _buildTripMap(
+            pickupLat: pickupLat,
+            pickupLng: pickupLng,
+            dropoffLat: dropoffLat,
+            dropoffLng: dropoffLng,
+          ),
+        ),
+        Positioned(
+          top: 16,
+          right: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+            decoration: BoxDecoration(
+              color: const Color(0xdd111B24),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xff3A5263)),
+            ),
+            child: Text('${index + 1} من ${_incomingTrips.length}',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ),
+        Positioned(
+          left: 10,
+          right: 10,
+          bottom: 12,
+          child: _buildRequestPanel(
+            trip,
+            tripId,
+            status,
+            ageMinutes,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTripMap({
+    required double? pickupLat,
+    required double? pickupLng,
+    required double? dropoffLat,
+    required double? dropoffLng,
+  }) {
+    if (pickupLat == null || pickupLng == null) {
+      return Container(
+        color: const Color(0xff17232D),
+        child: const Center(
+            child: Text('لا يوجد موقع للطلب',
+                style: TextStyle(color: Color(0xffA9BAC7)))),
+      );
+    }
+
+    final points = [
+      LatLng(pickupLat, pickupLng),
+      if (dropoffLat != null && dropoffLng != null)
+        LatLng(dropoffLat, dropoffLng),
+    ];
+
+    return FlutterMap(
+      options: MapOptions(
+        initialCameraFit: CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(points),
+          padding: const EdgeInsets.fromLTRB(40, 100, 40, 250),
+        ),
+        interactionOptions: const InteractionOptions(
+          flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+        ),
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.example.rideflow',
+          tileProvider: CancellableNetworkTileProvider(),
+        ),
+        if (dropoffLat != null && dropoffLng != null)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: [
+                  LatLng(pickupLat, pickupLng),
+                  LatLng(dropoffLat, dropoffLng),
+                ],
+                color: const Color(0xffD6A84F),
+                strokeWidth: 5,
+              ),
+            ],
+          ),
+        MarkerLayer(
+          markers: [
+            Marker(
+              point: LatLng(pickupLat, pickupLng),
+              width: 48,
+              height: 48,
+              child: const Icon(Icons.location_on,
+                  color: Color(0xff5DB6E8), size: 42),
+            ),
+            if (dropoffLat != null && dropoffLng != null)
+              Marker(
+                point: LatLng(dropoffLat, dropoffLng),
+                width: 48,
+                height: 48,
+                child: const Icon(Icons.flag_rounded,
+                    color: Color(0xffFF7A7A), size: 38),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRequestPanel(
+    Map<String, dynamic> trip,
+    dynamic tripId,
+    dynamic status,
+    int? ageMinutes,
+  ) {
+    final controller = _offerControllers[tripId];
+    final vehicleType = trip['vehicleType']?.toString() ?? 'VIP Sedan';
+    final bookingType = trip['tripType']?.toString() ?? 'حجز فوري';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xf5111B24),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xff3A5263)),
+        boxShadow: const [
+          BoxShadow(
+              color: Colors.black54, blurRadius: 20, offset: Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 38,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: const Color(0xff5B7181),
+                  borderRadius: BorderRadius.circular(4)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('NEW REQUEST',
+                    style: TextStyle(
+                        color: Color(0xffD6A84F),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2)),
+              ),
+              Text(
+                  '#${tripId.toString().substring(0, tripId.toString().length.clamp(0, 9))}',
+                  style:
+                      const TextStyle(color: Color(0xff8FA4B4), fontSize: 11)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('العميل: ${trip['userName'] ?? 'User Dummy'}',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _panelTag(Icons.directions_car_outlined, vehicleType),
+              const SizedBox(width: 7),
+              _panelTag(Icons.bolt_rounded, bookingType),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _panelLine(Icons.radio_button_checked, 'من', trip['pickupAddress']),
+          _panelLine(Icons.flag_rounded, 'إلى', trip['dropoffAddress']),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _metric(Icons.route_rounded, '${trip['distanceKm'] ?? 0} كم'),
+              const SizedBox(width: 16),
+              _metric(
+                  Icons.payments_outlined, '${trip['fareEstimate'] ?? 0} ج.م'),
+              if (ageMinutes != null) ...[
+                const SizedBox(width: 16),
+                _metric(Icons.schedule_rounded, 'منذ $ageMinutes د'),
+              ],
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (status == 'pending') ...[
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _acceptTrip(trip),
+                    icon: const Icon(Icons.check_circle_outline, size: 19),
+                    label: const Text('قبول الطلب'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xffD6A84F),
+                      foregroundColor: const Color(0xff111B24),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: () => _showTripDetails(trip),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xffC9D6DF),
+                    side: const BorderSide(color: Color(0xff3A5263)),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 14, horizontal: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: const Icon(Icons.more_horiz),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'عرضك (جنيه)',
+                      labelStyle: TextStyle(color: Color(0xff8FA4B4)),
+                      enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Color(0xff3A5263))),
+                      focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Color(0xffD6A84F))),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    enabled: trip['offerSent'] != true,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: trip['offerSent'] == true
+                      ? null
+                      : () async {
+                          final amount =
+                              double.tryParse(controller?.text ?? '') ??
+                                  (trip['fareEstimate'] as num?)?.toDouble() ??
+                                  0;
+                          await _submitOffer(tripId, amount);
+                          if (mounted) {
+                            setState(() {
+                              final index = _incomingTrips.indexWhere((item) =>
+                                  (item['id'] ?? item['rideId']) == tripId);
+                              if (index != -1) {
+                                _incomingTrips[index]['offerSent'] = true;
+                              }
+                            });
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xff2F9E68),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 15, horizontal: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: Text(trip['offerSent'] == true
+                      ? 'في الانتظار'
+                      : 'إرسال العرض'),
+                ),
+              ],
+            ),
+          ] else
+            _activeTripAction(tripId, status),
+        ],
+      ),
+    );
+  }
+
+  Widget _panelTag(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+          color: const Color(0xff1B2A35),
+          borderRadius: BorderRadius.circular(10)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 15, color: const Color(0xffD6A84F)),
+        const SizedBox(width: 5),
+        Text(text,
+            style: const TextStyle(color: Color(0xffC9D6DF), fontSize: 12)),
+      ]),
+    );
+  }
+
+  Widget _panelLine(IconData icon, String label, dynamic value) {
+    return Row(children: [
+      Icon(icon, size: 15, color: const Color(0xffD6A84F)),
+      const SizedBox(width: 7),
+      Text('$label: ',
+          style: const TextStyle(color: Color(0xff8FA4B4), fontSize: 12)),
+      Expanded(
+          child: Text(value?.toString() ?? 'غير محدد',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Color(0xffE4EDF2),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600))),
+    ]);
+  }
+
+  Widget _metric(IconData icon, String text) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 16, color: const Color(0xffE4BE67)),
+      const SizedBox(width: 4),
+      Text(text,
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+    ]);
+  }
+
+  Widget _activeTripAction(dynamic tripId, dynamic status) {
+    final actions = <String, Map<String, dynamic>>{
+      'accepted': {
+        'label': 'تحرك للعميل (في الطريق)',
+        'status': 'driver_arriving',
+        'color': const Color(0xffD6A84F)
+      },
+      'driver_arriving': {
+        'label': 'وصلت لموقع العميل',
+        'status': 'driver_arrived',
+        'color': const Color(0xff3D9ED0)
+      },
+      'driver_arrived': {
+        'label': 'بدء الرحلة والتوجه للوجهة',
+        'status': 'start',
+        'color': const Color(0xffD6A84F)
+      },
+      'started': {
+        'label': 'تم التوصيل بنجاح',
+        'status': 'completed',
+        'color': const Color(0xffC95D5D)
+      },
+    };
+    final action = actions[status];
+    if (action == null) return const SizedBox.shrink();
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: () =>
+            _updateTripStatus(tripId.toString(), action['status'] as String),
+        style: ElevatedButton.styleFrom(
+            backgroundColor: action['color'] as Color,
+            foregroundColor: const Color(0xff111B24),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14))),
+        child: Text(action['label'] as String,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  // ignore: unused_element
   Widget _buildIncomingTripsList() {
     if (_incomingTrips.isEmpty) {
       return Center(
@@ -1034,9 +1437,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                               (t) =>
                                                   (t['id'] ?? t['rideId']) ==
                                                   tripId);
-                                          if (idx != -1)
+                                          if (idx != -1) {
                                             _incomingTrips[idx]['offerSent'] =
                                                 true;
+                                          }
                                         });
                                       }
                                     },
