@@ -32,6 +32,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   socket_io.Socket? _socket;
   Timer? _tripsRefreshTimer;
   StreamSubscription<Position>? _positionStreamSubscription;
+  Position? _lastDriverPosition;
+  final Map<String, List<LatLng>> _routeCache = {};
+  final Set<String> _routeLoading = {};
 
   // Controllers for offers
   final Map<String, TextEditingController> _offerControllers = {};
@@ -78,6 +81,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     try {
       final initialPos = await LocationService.getCurrentPosition();
       if (initialPos == null) return;
+      _lastDriverPosition = initialPos;
       if (_isOnline) {
         ApiClient().dio.put(
           '/api/locations/$_driverId',
@@ -103,6 +107,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             !_isOnline ||
             _socket == null ||
             !_socket!.connected) return;
+
+        _lastDriverPosition = position;
 
         // Find any active trip to update location for (socket)
         final activeTrip = _incomingTrips.firstWhere(
@@ -536,6 +542,38 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
   }
 
+  Future<void> _loadRoadRoute(String tripId, double pickupLat, double pickupLng,
+      double dropoffLat, double dropoffLng) async {
+    if (_routeCache.containsKey(tripId) || !_routeLoading.add(tripId)) return;
+    try {
+      final uri = Uri.parse(
+          'https://router.project-osrm.org/route/v1/driving/$pickupLng,$pickupLat;$dropoffLng,$dropoffLat?overview=full&geometries=geojson');
+      final response = await http.get(uri);
+      if (response.statusCode != 200) return;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final routes = data['routes'] as List<dynamic>?;
+      final coordinates = routes?.isNotEmpty == true
+          ? (routes!.first['geometry']?['coordinates'] as List<dynamic>?)
+          : null;
+      if (coordinates == null || !mounted) return;
+      final points = coordinates
+          .whereType<List<dynamic>>()
+          .where((point) => point.length >= 2)
+          .map((point) => LatLng(
+                (point[1] as num).toDouble(),
+                (point[0] as num).toDouble(),
+              ))
+          .toList();
+      if (points.length > 1) {
+        setState(() => _routeCache[tripId] = points);
+      }
+    } catch (error) {
+      debugPrint('Route lookup failed: $error');
+    } finally {
+      _routeLoading.remove(tripId);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -580,7 +618,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Dispatch Center',
+                      Text('Zoon',
                           style: TextStyle(
                               color: Colors.white,
                               fontSize: 23,
@@ -665,46 +703,68 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     final pickupLng = (trip['pickupLng'] as num?)?.toDouble();
     final dropoffLat = (trip['dropoffLat'] as num?)?.toDouble();
     final dropoffLng = (trip['dropoffLng'] as num?)?.toDouble();
+    if (pickupLat != null &&
+        pickupLng != null &&
+        dropoffLat != null &&
+        dropoffLng != null) {
+      _loadRoadRoute(
+          tripId.toString(), pickupLat, pickupLng, dropoffLat, dropoffLng);
+    }
 
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: _buildTripMap(
-            pickupLat: pickupLat,
-            pickupLng: pickupLng,
-            dropoffLat: dropoffLat,
-            dropoffLng: dropoffLng,
-          ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 16, 10, 24),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xff121D26),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xff3A5263)),
+          boxShadow: const [
+            BoxShadow(
+                color: Colors.black54, blurRadius: 22, offset: Offset(0, 8)),
+          ],
         ),
-        Positioned(
-          top: 16,
-          right: 16,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-            decoration: BoxDecoration(
-              color: const Color(0xdd111B24),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xff3A5263)),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            SizedBox(
+              height: 270,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: _buildTripMap(
+                      pickupLat: pickupLat,
+                      pickupLng: pickupLng,
+                      dropoffLat: dropoffLat,
+                      dropoffLng: dropoffLng,
+                      driverPosition: _lastDriverPosition,
+                      routePoints: _routeCache[tripId.toString()],
+                    ),
+                  ),
+                  Positioned(
+                    top: 14,
+                    right: 14,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 11, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: const Color(0xdd111B24),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: const Color(0xff3A5263)),
+                      ),
+                      child: Text('${index + 1} من ${_incomingTrips.length}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Text('${index + 1} من ${_incomingTrips.length}',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700)),
-          ),
+            _buildRequestPanel(trip, tripId, status, ageMinutes),
+          ],
         ),
-        Positioned(
-          left: 10,
-          right: 10,
-          bottom: 12,
-          child: _buildRequestPanel(
-            trip,
-            tripId,
-            status,
-            ageMinutes,
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -713,6 +773,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     required double? pickupLng,
     required double? dropoffLat,
     required double? dropoffLng,
+    required Position? driverPosition,
+    required List<LatLng>? routePoints,
   }) {
     if (pickupLat == null || pickupLng == null) {
       return Container(
@@ -725,6 +787,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
     final points = [
       LatLng(pickupLat, pickupLng),
+      if (driverPosition != null)
+        LatLng(driverPosition.latitude, driverPosition.longitude),
       if (dropoffLat != null && dropoffLng != null)
         LatLng(dropoffLat, dropoffLng),
     ];
@@ -745,16 +809,26 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           userAgentPackageName: 'com.example.rideflow',
           tileProvider: CancellableNetworkTileProvider(),
         ),
-        if (dropoffLat != null && dropoffLng != null)
+        if (routePoints != null && routePoints.length > 1)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: routePoints,
+                color: const Color(0xffD6A84F),
+                strokeWidth: 5,
+              ),
+            ],
+          ),
+        if (routePoints == null && dropoffLat != null && dropoffLng != null)
           PolylineLayer(
             polylines: [
               Polyline(
                 points: [
                   LatLng(pickupLat, pickupLng),
-                  LatLng(dropoffLat, dropoffLng),
+                  LatLng(dropoffLat, dropoffLng)
                 ],
                 color: const Color(0xffD6A84F),
-                strokeWidth: 5,
+                strokeWidth: 3,
               ),
             ],
           ),
@@ -774,6 +848,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 height: 48,
                 child: const Icon(Icons.flag_rounded,
                     color: Color(0xffFF7A7A), size: 38),
+              ),
+            if (driverPosition != null)
+              Marker(
+                point:
+                    LatLng(driverPosition.latitude, driverPosition.longitude),
+                width: 42,
+                height: 42,
+                child: const Icon(Icons.navigation_rounded,
+                    color: Color(0xffD6A84F), size: 32),
               ),
           ],
         ),
@@ -832,7 +915,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          Text('العميل: ${trip['userName'] ?? 'User Dummy'}',
+          Text('العميل: ${trip['userName'] ?? trip['customerName'] ?? 'عميل'}',
               style: const TextStyle(
                   color: Colors.white,
                   fontSize: 16,
