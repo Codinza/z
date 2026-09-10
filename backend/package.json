@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "prisma generate && prisma db push",
     "dev": "node --watch src/app.js",
     "start": "node src/app.js",
     "build": "prisma generate",
