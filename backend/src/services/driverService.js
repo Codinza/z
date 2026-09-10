@@ -1,5 +1,8 @@
 import { driverRepository } from '../repositories/driverRepository.js';
 import { tripRepository } from '../repositories/tripRepository.js';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 class DriverService {
   async listDrivers() {
@@ -58,6 +61,25 @@ class DriverService {
       // Fallback for dummy
       return { message: 'Recharged successfully (Dummy)', balance: parsedAmount };
     }
+  }
+
+  async createTopUpRequest(id, amount, paymentMethod, receiptImage) {
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) throw new Error('Invalid amount');
+    if (!['instapay', 'vodafone_cash'].includes(paymentMethod)) throw new Error('Invalid payment method');
+    if (typeof receiptImage !== 'string' || !receiptImage.startsWith('data:image/')) {
+      throw new Error('Receipt image is required');
+    }
+
+    const driver = await prisma.driver.findFirst({
+      where: { OR: [{ id }, { userId: id }] },
+      select: { id: true },
+    });
+    if (!driver) throw new Error('Driver not found');
+
+    return prisma.driverTopUpRequest.create({
+      data: { driverId: driver.id, amount: parsedAmount, paymentMethod, receiptImage },
+    });
   }
 
   async createWalletCheckout(id, amount) {

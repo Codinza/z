@@ -44,7 +44,22 @@ model Driver {
   car        Car?
   trips      Trip[]
   locations  DriverLocation[]
-  ratings    Rating[]
+  ratings        Rating[]
+  topUpRequests  DriverTopUpRequest[]
+}
+
+model DriverTopUpRequest {
+  id            String   @id @default(cuid())
+  driverId      String
+  amount        Float
+  paymentMethod String
+  receiptImage  String   @db.Text
+  status        String   @default("pending")
+  adminNote     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  driver        Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
 }
 
 model Car {

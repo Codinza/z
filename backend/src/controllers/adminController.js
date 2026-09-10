@@ -4,6 +4,48 @@ import { getOnlineDriversCount, getOnlineDriversList } from '../sockets/socketSe
 
 const prisma = new PrismaClient();
 
+export const getTopUpRequests = async (req, res) => {
+  try {
+    const requests = await prisma.driverTopUpRequest.findMany({
+      where: { status: 'pending' },
+      include: { driver: { include: { user: { select: { name: true, phone: true } } } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json({ requests });
+  } catch (error) {
+    console.error('getTopUpRequests error:', error);
+    res.status(500).json({ error: 'Failed to fetch top-up requests' });
+  }
+};
+
+export const reviewTopUpRequest = async (req, res) => {
+  try {
+    const request = await prisma.driverTopUpRequest.findUnique({ where: { id: req.params.id } });
+    if (!request || request.status !== 'pending') {
+      return res.status(404).json({ error: 'Pending request not found' });
+    }
+
+    const approve = req.body.approve === true;
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.driverTopUpRequest.update({
+        where: { id: request.id },
+        data: { status: approve ? 'approved' : 'rejected', adminNote: req.body.adminNote || null },
+      });
+      if (approve) {
+        await tx.driver.update({
+          where: { id: request.driverId },
+          data: { walletBalance: { increment: request.amount } },
+        });
+      }
+      return updated;
+    });
+    res.json({ request: result });
+  } catch (error) {
+    console.error('reviewTopUpRequest error:', error);
+    res.status(500).json({ error: 'Failed to review top-up request' });
+  }
+};
+
 export const getPendingDrivers = async (req, res) => {
   try {
     const drivers = await prisma.driver.findMany({

@@ -30,6 +30,20 @@ class DriverController {
     }
   }
 
+  async createTopUpRequest(req, res) {
+    try {
+      const result = await driverService.createTopUpRequest(
+        req.params.id,
+        req.body.amount,
+        req.body.paymentMethod,
+        req.body.receiptImage,
+      );
+      return res.status(201).json(result);
+    } catch (e) {
+      return res.status(400).json({ message: e.message });
+    }
+  }
+
   async createWalletCheckout(req, res) {
     try {
       const result = await driverService.createWalletCheckout(req.params.id, req.body.amount);

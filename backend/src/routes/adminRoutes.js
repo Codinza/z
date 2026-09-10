@@ -8,6 +8,8 @@ import {
   adminAcceptOrder,
   adminRejectOrder,
   adminSendCounterOffer,
+  getTopUpRequests,
+  reviewTopUpRequest,
 } from '../controllers/adminController.js';
 
 const router = Router();
@@ -22,6 +24,8 @@ export const adminRoutes = () => {
   router.post('/orders/:orderId/accept', adminAcceptOrder);
   router.post('/orders/:orderId/reject', adminRejectOrder);
   router.post('/orders/:orderId/offer', adminSendCounterOffer);
+  router.get('/driver-top-ups', getTopUpRequests);
+  router.post('/driver-top-ups/:id/review', reviewTopUpRequest);
 
   return router;
 };
