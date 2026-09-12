@@ -49,7 +49,24 @@ class NotificationService {
         enableLights: true,
       ),
     );
+
+    await androidImplementation?.createNotificationChannel(
+      AndroidNotificationChannel(
+        _alertChannelId,
+        _alertChannelName,
+        description: _alertChannelDesc,
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        vibrationPattern: Int64List.fromList([0, 1000, 500, 1000, 500, 1000]),
+        enableLights: true,
+      ),
+    );
   }
+
+  static const String _alertChannelId = 'zoon_driver_trip_alerts';
+  static const String _alertChannelName = 'تنبيهات طلبات الكابتن الفورية';
+  static const String _alertChannelDesc = 'تنبيهات رنين واهتزاز فورية ومستمرة عند ورود مشاوير جديدة للكابتن';
 
   Future<void> requestPermission() async {
     if (kIsWeb) return;
@@ -95,5 +112,54 @@ class NotificationService {
     );
 
     await _notificationsPlugin.show(notifId, title, body, platformDetails);
+  }
+
+  Future<void> showDriverTripAlert({
+    required String tripId,
+    required String pickupAddress,
+    required String fare,
+    String? customerName,
+  }) async {
+    if (kIsWeb) return;
+
+    final notifId = tripId.hashCode.abs().remainder(100000);
+
+    final AndroidNotificationDetails alertDetails = AndroidNotificationDetails(
+      _alertChannelId,
+      _alertChannelName,
+      channelDescription: _alertChannelDesc,
+      importance: Importance.max,
+      priority: Priority.max,
+      playSound: true,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 1000, 500, 1000, 500, 1000]),
+      enableLights: true,
+      fullScreenIntent: true,
+      visibility: NotificationVisibility.public,
+      category: AndroidNotificationCategory.call,
+      styleInformation: BigTextStyleInformation(
+        'طلب جديد من ${customerName ?? "عميل زوون"}\nنقطة الركوب: $pickupAddress\nالأجرة المقترحة: $fare ج.م\nاضغط للفتح والقبول الآن 🚀',
+        contentTitle: '🚨 مشوار جديد بانتظارك! ($fare ج.م)',
+        summaryText: 'زوون كابتن',
+      ),
+    );
+
+    final NotificationDetails platformDetails = NotificationDetails(
+      android: alertDetails,
+      iOS: const DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      ),
+    );
+
+    await _notificationsPlugin.show(
+      notifId,
+      '🚨 مشوار جديد بانتظارك! ($fare ج.م)',
+      'نقطة الركوب: $pickupAddress',
+      platformDetails,
+      payload: tripId,
+    );
   }
 }

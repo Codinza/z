@@ -14,6 +14,7 @@ import '../../core/services/notification_service.dart';
 import '../auth/auth_service.dart';
 import '../map_trip/active_trip_screen.dart';
 import '../notifications/notifications_screen.dart';
+import 'driver_background_service.dart';
 import 'driver_trip_route_map_screen.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
@@ -128,6 +129,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (_socket?.connected != true) _fetchAvailableTrips();
     });
     _startLocationUpdates();
+
+    // بدء خدمة الخلفية للحفاظ على اتصال السوكيت وإشعارات المشاوير
+    if (_driverId.isNotEmpty) {
+      DriverBackgroundService().startService(_driverId);
+    }
   }
 
   @override
@@ -138,6 +144,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     for (var controller in _offerControllers.values) {
       controller.dispose();
     }
+    DriverBackgroundService().stopService();
     super.dispose();
   }
 
@@ -282,11 +289,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             );
           }
         });
-        NotificationService().showNotification(
-          id: 10,
-          title: 'طلب رحلة جديد! 🚗',
-          body:
-              'من: ${normalizedData['pickupAddress'] ?? 'موقع العميل'} - السعر: ${normalizedData['fareEstimate'] ?? ''} ج.م',
+        NotificationService().showDriverTripAlert(
+          tripId: (normalizedData['id'] ?? normalizedData['rideId'] ?? '').toString(),
+          pickupAddress: (normalizedData['pickupAddress'] ?? 'موقع العميل').toString(),
+          fare: (normalizedData['fareEstimate'] ?? '0').toString(),
+          customerName: (normalizedData['customerName'] ?? normalizedData['user']?['name'])?.toString(),
         );
       }
     });
