@@ -12,6 +12,7 @@ export function driverRoutes() {
   router.post('/:id/wallet/checkout', driverController.createWalletCheckout.bind(driverController));
   router.post('/:id/wallet/top-up-request', driverController.createTopUpRequest.bind(driverController));
   router.get('/:id/history', driverController.getHistory.bind(driverController));
+  router.get('/:id/ratings', driverController.getRatings.bind(driverController));
 
   return router;
 }

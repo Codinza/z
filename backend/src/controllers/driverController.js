@@ -61,6 +61,15 @@ class DriverController {
       return res.status(400).json({ message: e.message });
     }
   }
+
+  async getRatings(req, res) {
+    try {
+      const ratingsData = await driverService.getDriverRatings(req.params.id);
+      return res.json(ratingsData);
+    } catch (e) {
+      return res.status(400).json({ message: e.message });
+    }
+  }
 }
 
 export const driverController = new DriverController();

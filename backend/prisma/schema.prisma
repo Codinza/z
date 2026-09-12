@@ -96,6 +96,7 @@ model Trip {
   user            User     @relation(fields: [userId], references: [id])
   driver          Driver?  @relation(fields: [driverId], references: [id])
   payment         Payment?
+  ratings         Rating[]
 }
 
 model Company {
@@ -211,14 +212,16 @@ model DriverLocation {
 
 model Rating {
   id         String   @id @default(cuid())
-  orderId    String
+  orderId    String?
+  tripId     String?
   userId     String
   driverId   String?
   score      Int
   comment    String?
   createdAt  DateTime @default(now())
 
-  order      Order    @relation(fields: [orderId], references: [id])
+  order      Order?   @relation(fields: [orderId], references: [id])
+  trip       Trip?    @relation(fields: [tripId], references: [id])
   user       User     @relation(fields: [userId], references: [id])
   driver     Driver?  @relation(fields: [driverId], references: [id])
 }

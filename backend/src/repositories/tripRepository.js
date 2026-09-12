@@ -14,8 +14,16 @@ class TripRepository {
 
   async listTripsByDriver(driverId) {
     return prisma.trip.findMany({
-      where: { driverId },
-      include: { user: { select: { name: true, phone: true } } },
+      where: {
+        OR: [
+          { driverId },
+          { driver: { userId: driverId } },
+        ],
+      },
+      include: {
+        user: { select: { name: true, phone: true } },
+        ratings: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

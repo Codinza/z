@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/network/api_client.dart';
+import '../auth/auth_service.dart';
 
 class DriverArchiveScreen extends StatefulWidget {
   const DriverArchiveScreen({super.key});
@@ -11,7 +12,7 @@ class DriverArchiveScreen extends StatefulWidget {
 class _DriverArchiveScreenState extends State<DriverArchiveScreen> {
   bool _isLoading = true;
   List<dynamic> _history = [];
-  final String _driverId = 'driver_dummy_001';
+  String _driverId = 'driver_dummy_001';
 
   @override
   void initState() {
@@ -21,6 +22,10 @@ class _DriverArchiveScreenState extends State<DriverArchiveScreen> {
 
   Future<void> _fetchHistory() async {
     try {
+      final savedId = await AuthService.getUserId();
+      if (savedId != null && savedId.isNotEmpty) {
+        _driverId = savedId;
+      }
       final response = await ApiClient().dio.get('/api/drivers/$_driverId/history');
       if (response.statusCode == 200) {
         if (mounted) {

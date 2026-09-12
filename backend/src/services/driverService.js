@@ -144,7 +144,7 @@ class DriverService {
   async getDriverHistory(id) {
     const { rides } = await import('./tripService.js');
     const memoryHistory = Array.from(rides.values())
-      .filter((ride) => ride.driverId === id &&
+      .filter((ride) => (ride.driverId === id) &&
         (ride.status === 'completed' || ride.status === 'cancelled'));
 
     let databaseHistory = [];
@@ -154,12 +154,119 @@ class DriverService {
 
     return [
       ...memoryHistory,
-      ...databaseHistory.map((trip) => ({
-        ...trip,
-        userName: trip.user?.name ?? 'عميل',
-        userPhone: trip.user?.phone,
-      })),
+      ...databaseHistory.map((trip) => {
+        const rating = trip.ratings?.[0]
+          ? {
+              score: trip.ratings[0].score,
+              comment: trip.ratings[0].comment,
+              createdAt: trip.ratings[0].createdAt,
+            }
+          : trip.rating || null;
+
+        return {
+          ...trip,
+          rating,
+          userName: trip.user?.name ?? 'عميل',
+          userPhone: trip.user?.phone,
+        };
+      }),
     ];
+  }
+
+  async getDriverRatings(id) {
+    let driver = null;
+    try {
+      driver = await prisma.driver.findFirst({
+        where: {
+          OR: [
+            { id },
+            { userId: id },
+          ],
+        },
+        include: {
+          user: { select: { name: true, phone: true } },
+        },
+      });
+    } catch (_) {}
+
+    const driverDbId = driver?.id ?? id;
+
+    // 1. Fetch ratings from DB
+    let dbRatings = [];
+    try {
+      dbRatings = await prisma.rating.findMany({
+        where: {
+          OR: [
+            { driverId: driverDbId },
+            { trip: { driverId: driverDbId } },
+            ...(driver?.userId ? [{ trip: { driver: { userId: driver.userId } } }] : []),
+          ],
+        },
+        include: {
+          user: { select: { name: true, profileImage: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    } catch (err) {
+      console.error('Error fetching driver ratings from DB:', err.message);
+    }
+
+    // 2. Fetch ratings from memory
+    const { rides } = await import('./tripService.js');
+    const memoryRatings = [];
+    for (const trip of rides.values()) {
+      const isDriverTrip =
+        trip.driverId === id ||
+        trip.driverId === driverDbId ||
+        (driver && trip.driverId === driver.userId);
+
+      if (isDriverTrip && trip.rating) {
+        const alreadyInDb = dbRatings.some((r) => r.tripId === trip.id);
+        if (!alreadyInDb) {
+          memoryRatings.push({
+            id: `mem_${trip.id}`,
+            tripId: trip.id,
+            score: trip.rating.score,
+            comment: trip.rating.comment,
+            createdAt: trip.rating.createdAt,
+            customerName: trip.userName || 'عميل زوون',
+          });
+        }
+      }
+    }
+
+    const allRatings = [
+      ...dbRatings.map((r) => ({
+        id: r.id,
+        tripId: r.tripId,
+        score: r.score,
+        comment: r.comment,
+        createdAt: r.createdAt,
+        customerName: r.user?.name || 'عميل زوون',
+      })),
+      ...memoryRatings,
+    ];
+
+    const totalRatings = allRatings.length;
+    const averageRating =
+      totalRatings > 0
+        ? Number((allRatings.reduce((sum, r) => sum + r.score, 0) / totalRatings).toFixed(1))
+        : 5.0;
+
+    const breakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    for (const r of allRatings) {
+      const s = Math.round(r.score);
+      if (breakdown[s] !== undefined) breakdown[s]++;
+    }
+
+    return {
+      driverId: id,
+      driverName: driver?.user?.name ?? 'كابتن زوون',
+      averageRating,
+      totalRatings,
+      breakdown,
+      ratings: allRatings,
+    };
   }
 }
 

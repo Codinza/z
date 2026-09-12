@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { calculateDistanceKm, estimateFare, getSurgeMultiplier, calculateDriverOffer } from './mapsService.js';
 import { tripRepository } from '../repositories/tripRepository.js';
 import { driverRepository } from '../repositories/driverRepository.js';
+import { prisma } from '../db/prisma.js';
 import logger from '../utils/logger.js';
 
 // Global socket.io instance (will be set from app.js)
@@ -516,16 +517,88 @@ class TripService {
   }
 
   async submitRating(rideId, score, comment) {
-    const ride = rides.get(rideId);
+    let ride = rides.get(rideId);
+    if (!ride) {
+      const stored = await tripRepository.getTripById(rideId);
+      if (stored) {
+        ride = { ...stored };
+        rides.set(rideId, ride);
+      }
+    }
     if (!ride) throw new Error('Ride not found');
 
+    const parsedScore = Math.max(1, Math.min(5, parseInt(score, 10) || 5));
+    const trimmedComment = comment ? String(comment).trim() : null;
+
     ride.rating = {
-      score,
-      comment,
+      score: parsedScore,
+      comment: trimmedComment,
       createdAt: new Date().toISOString(),
     };
 
     ride.updatedAt = new Date().toISOString();
+
+    // Persist rating to PostgreSQL
+    try {
+      let driverDbId = null;
+      if (ride.driverId) {
+        const driverRecord = await prisma.driver.findFirst({
+          where: {
+            OR: [
+              { id: ride.driverId },
+              { userId: ride.driverId },
+            ],
+          },
+        });
+        if (driverRecord) {
+          driverDbId = driverRecord.id;
+        }
+      }
+
+      // Check if rating for this trip already exists
+      const existingRating = await prisma.rating.findFirst({
+        where: { tripId: ride.id },
+      });
+
+      if (existingRating) {
+        await prisma.rating.update({
+          where: { id: existingRating.id },
+          data: {
+            score: parsedScore,
+            comment: trimmedComment,
+            driverId: driverDbId ?? existingRating.driverId,
+          },
+        });
+      } else if (ride.userId) {
+        await prisma.rating.create({
+          data: {
+            tripId: ride.id,
+            userId: ride.userId,
+            driverId: driverDbId,
+            score: parsedScore,
+            comment: trimmedComment,
+          },
+        });
+      }
+      logger.info(`Persisted rating ${parsedScore} for trip ${ride.id}`);
+    } catch (err) {
+      logger.error(`Failed to persist rating to DB: ${err.message}`);
+    }
+
+    // Realtime notification via Socket.IO
+    try {
+      if (io && ride.driverId) {
+        io.to(`driver_${ride.driverId}`).emit('new_rating_received', {
+          tripId: ride.id,
+          rating: ride.rating,
+        });
+        io.emit('driver_rating_updated', {
+          driverId: ride.driverId,
+          rating: ride.rating,
+        });
+      }
+    } catch (_) {}
+
     return ride;
   }
 
