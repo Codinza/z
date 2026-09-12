@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
@@ -1376,18 +1377,83 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         s == 'ON_THE_WAY';
   }
 
+  Widget _buildAvatar(String? imageSource, {double size = 44, bool isTrip = true}) {
+    if (imageSource != null && imageSource.trim().isNotEmpty) {
+      final cleanSource = imageSource.trim();
+      if (cleanSource.startsWith('http://') || cleanSource.startsWith('https://')) {
+        return ClipOval(
+          child: Image.network(
+            cleanSource,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _buildFallbackAvatar(size, isTrip),
+          ),
+        );
+      } else {
+        try {
+          final base64String = cleanSource.contains(',')
+              ? cleanSource.split(',').last.trim()
+              : cleanSource;
+          final bytes = base64Decode(base64String);
+          return ClipOval(
+            child: Image.memory(
+              bytes,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _buildFallbackAvatar(size, isTrip),
+            ),
+          );
+        } catch (_) {
+          return _buildFallbackAvatar(size, isTrip);
+        }
+      }
+    }
+    return _buildFallbackAvatar(size, isTrip);
+  }
+
+  Widget _buildFallbackAvatar(double size, bool isTrip) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: isTrip
+            ? const Color(0xffF97316).withOpacity(0.15)
+            : const Color(0xff22C55E).withOpacity(0.15),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Icon(
+          isTrip ? Icons.person_rounded : Icons.business_rounded,
+          color: isTrip ? const Color(0xffF97316) : const Color(0xff22C55E),
+          size: size * 0.55,
+        ),
+      ),
+    );
+  }
+
   Widget _buildPartnerCard() {
     final driver = _order?['driver'] as Map?;
     final company = _order?['company'] as Map?;
     final name = driver?['name']?.toString() ??
+        _order?['driverName']?.toString() ??
         company?['companyName']?.toString() ??
         (_isTrip ? 'كابتن الرحلة' : 'شركة النقل المعتمدة');
 
     final phone = driver?['phone']?.toString() ??
+        _order?['driverPhone']?.toString() ??
         company?['companyPhone']?.toString() ??
         '';
 
-    final car = driver?['car'] as Map?;
+    final driverImage = driver?['profileImage']?.toString() ??
+        driver?['driverImage']?.toString() ??
+        _order?['driverImage']?.toString();
+
+    final rating = (driver?['rating'] ?? _order?['driverRating'] as num?)?.toDouble() ?? 5.0;
+    final totalRatings = (driver?['totalRatings'] ?? _order?['driverTotalRatings'] as num?)?.toInt() ?? 0;
+
+    final car = (driver?['car'] ?? _order?['car']) as Map?;
     final carDesc = car != null
         ? '${car['model'] ?? ''} ${car['color'] ?? ''} (${car['plateNumber'] ?? ''})'
             .trim()
@@ -1404,16 +1470,19 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       child: Row(
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 50,
+            height: 50,
             decoration: BoxDecoration(
-              color: const Color(0xff22C55E).withOpacity(0.15),
-              borderRadius: BorderRadius.circular(14),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: const Color(0xff22C55E),
+                width: 2,
+              ),
             ),
-            child: Icon(
-              _isTrip ? Icons.person_rounded : Icons.business_rounded,
-              color: const Color(0xff22C55E),
-              size: 26,
+            child: _buildAvatar(
+              driverImage,
+              size: 46,
+              isTrip: _isTrip,
             ),
           ),
           const SizedBox(width: 14),
@@ -1436,8 +1505,36 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         color: Color(0xff22C55E), size: 16),
                   ],
                 ),
+                if (_isTrip) ...[
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      const Icon(Icons.star_rounded,
+                          color: Color(0xffFBBF24), size: 16),
+                      const SizedBox(width: 3),
+                      Text(
+                        rating.toStringAsFixed(1),
+                        style: const TextStyle(
+                          color: Color(0xffFBBF24),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (totalRatings > 0) ...[
+                        const SizedBox(width: 4),
+                        Text(
+                          '($totalRatings تقييم)',
+                          style: const TextStyle(
+                            color: Color(0xff94A3B8),
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
                 if (carDesc != null && carDesc.isNotEmpty) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   Text(
                     carDesc,
                     style: const TextStyle(
@@ -1779,6 +1876,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           final status = offer['status']?.toString();
           final isAccepted =
               status == 'accepted' || status == 'CUSTOMER_APPROVED';
+          final driverImage = offer['driverImage']?.toString() ??
+              offer['profileImage']?.toString();
+          final rating = (offer['rating'] as num?)?.toDouble() ?? 5.0;
+          final totalRatings = (offer['totalRatings'] as num?)?.toInt() ?? 0;
 
           return Container(
             margin: const EdgeInsets.only(bottom: 10),
@@ -1795,16 +1896,21 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             child: Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: const Color(0xff111315),
-                    borderRadius: BorderRadius.circular(10),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isAccepted
+                          ? const Color(0xff22C55E)
+                          : const Color(0xffF97316).withOpacity(0.4),
+                      width: 1.5,
+                    ),
                   ),
-                  child: Icon(
-                    _isTrip ? Icons.person_rounded : Icons.business_rounded,
-                    color: const Color(0xffF97316),
-                    size: 20,
+                  child: _buildAvatar(
+                    driverImage,
+                    size: 40,
+                    isTrip: _isTrip,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1820,7 +1926,35 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      if (_isTrip) ...[
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            const Icon(Icons.star_rounded,
+                                color: Color(0xffFBBF24), size: 15),
+                            const SizedBox(width: 3),
+                            Text(
+                              rating.toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Color(0xffFBBF24),
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (totalRatings > 0) ...[
+                              const SizedBox(width: 3),
+                              Text(
+                                '($totalRatings تقييم)',
+                                style: const TextStyle(
+                                  color: Color(0xff94A3B8),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 3),
                       Text(
                         '${price?.toStringAsFixed(0) ?? '-'} ج.م',
                         style: const TextStyle(
