@@ -122,8 +122,8 @@ class TripController {
 
   async submitDriverOffer(req, res) {
     try {
-      const { driverId, offerAmount, driverName, driverPhone } = req.body;
-      const result = await tripService.submitDriverOffer(req.params.id, driverId, offerAmount, driverName, driverPhone);
+      const { driverId, offerAmount, driverName, driverPhone, driverImage, rating } = req.body;
+      const result = await tripService.submitDriverOffer(req.params.id, driverId, offerAmount, driverName, driverPhone, driverImage, rating);
       return res.status(200).json({ message: 'Driver offer submitted', ...result });
     } catch (error) {
       return res.status(400).json({ message: error.message });

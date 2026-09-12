@@ -85,31 +85,69 @@ class TripService {
   }
 
   async getTripById(id) {
-    const memory = rides.get(id);
-    if (memory) {
-      if ((!memory.userPhone || memory.userName === 'User Dummy') && memory.userId) {
+    let trip = rides.get(id);
+    if (trip) {
+      if ((!trip.userPhone || trip.userName === 'User Dummy') && trip.userId) {
         try {
           const user = await prisma.user.findUnique({
-            where: { id: memory.userId },
+            where: { id: trip.userId },
             select: { name: true, phone: true, profileImage: true },
           });
           if (user) {
-            if (user.phone) memory.userPhone = user.phone;
-            if (user.name) memory.userName = user.name;
-            if (user.profileImage) memory.customerImageUrl = user.profileImage;
+            if (user.phone) trip.userPhone = user.phone;
+            if (user.name) trip.userName = user.name;
+            if (user.profileImage) trip.customerImageUrl = user.profileImage;
           }
         } catch (_) {}
       }
-      return memory;
+    } else {
+      const stored = await tripRepository.getTripById(id);
+      if (!stored) return null;
+      trip = {
+        ...stored,
+        userName: stored.user?.name ?? stored.userName ?? 'عميل زوون VIP',
+        userPhone: stored.user?.phone ?? stored.userPhone ?? null,
+        customerImageUrl: stored.user?.profileImage ?? null,
+      };
     }
-    const stored = await tripRepository.getTripById(id);
-    if (!stored) return null;
-    return {
-      ...stored,
-      userName: stored.user?.name ?? stored.userName ?? 'عميل زوون VIP',
-      userPhone: stored.user?.phone ?? stored.userPhone ?? null,
-      customerImageUrl: stored.user?.profileImage ?? null,
-    };
+
+    // Enrich with driver details (photo, rating, car) if driver is assigned
+    if (trip && trip.driverId) {
+      try {
+        const driverRecord = await prisma.driver.findFirst({
+          where: {
+            OR: [{ id: trip.driverId }, { userId: trip.driverId }],
+          },
+          include: {
+            user: { select: { name: true, phone: true, profileImage: true } },
+            car: true,
+          },
+        });
+        const { driverService } = await import('./driverService.js');
+        const ratingsData = await driverService.getDriverRatings(trip.driverId);
+        const dImage = driverRecord?.user?.profileImage ?? trip.driverImage ?? null;
+        const dRating = ratingsData?.averageRating ?? trip.driverRating ?? 5.0;
+        const dTotal = ratingsData?.totalRatings ?? trip.driverTotalRatings ?? 0;
+
+        trip.driver = {
+          id: driverRecord?.id ?? trip.driverId,
+          name: driverRecord?.user?.name ?? trip.driverName ?? 'كابتن زوون',
+          phone: trip.status === 'pending' ? null : (driverRecord?.user?.phone ?? trip.driverPhone ?? ''),
+          profileImage: dImage,
+          driverImage: dImage,
+          rating: dRating,
+          totalRatings: dTotal,
+          car: driverRecord?.car ?? null,
+        };
+        trip.driverName = trip.driver.name;
+        trip.driverPhone = trip.driver.phone;
+        trip.driverImage = dImage;
+        trip.driverRating = dRating;
+        trip.driverTotalRatings = dTotal;
+      } catch (_) {}
+    }
+
+    return trip;
   }
 
   async createTripRequest(payload) {
@@ -637,7 +675,7 @@ class TripService {
     return ride;
   }
 
-  async submitDriverOffer(rideId, driverId, offerAmount, driverName, driverPhone) {
+  async submitDriverOffer(rideId, driverId, offerAmount, driverName, driverPhone, driverImageUrl, driverRating) {
     let ride = rides.get(rideId);
     if (!ride) {
       const stored = await tripRepository.getTripById(rideId);
@@ -667,20 +705,81 @@ class TripService {
       ride.offers = [];
     }
 
+    // Resolve driver profile image and rating
+    let resolvedDriverName = driverName;
+    let resolvedDriverPhone = driverPhone;
+    let resolvedDriverImage = driverImageUrl || null;
+    let resolvedRating = driverRating ? Number(driverRating) : 5.0;
+    let resolvedTotalRatings = 0;
+
+    try {
+      const driverRecord = await prisma.driver.findFirst({
+        where: {
+          OR: [{ id: driverId }, { userId: driverId }],
+        },
+        include: {
+          user: { select: { name: true, phone: true, profileImage: true } },
+          car: true,
+        },
+      });
+
+      if (driverRecord) {
+        if (!resolvedDriverName || resolvedDriverName === 'كابتن زوون') {
+          resolvedDriverName = driverRecord.user?.name || 'كابتن زوون';
+        }
+        if (!resolvedDriverPhone) {
+          resolvedDriverPhone = driverRecord.user?.phone || '';
+        }
+        if (!resolvedDriverImage && driverRecord.user?.profileImage) {
+          resolvedDriverImage = driverRecord.user.profileImage;
+        }
+        const { driverService } = await import('./driverService.js');
+        const ratingsData = await driverService.getDriverRatings(driverRecord.id);
+        resolvedRating = ratingsData.averageRating ?? 5.0;
+        resolvedTotalRatings = ratingsData.totalRatings ?? 0;
+      } else {
+        const userRecord = await prisma.user.findUnique({
+          where: { id: driverId },
+          select: { name: true, phone: true, profileImage: true },
+        });
+        if (userRecord) {
+          if (!resolvedDriverName || resolvedDriverName === 'كابتن زوون') {
+            resolvedDriverName = userRecord.name || 'كابتن زوون';
+          }
+          if (!resolvedDriverPhone) {
+            resolvedDriverPhone = userRecord.phone || '';
+          }
+          if (!resolvedDriverImage && userRecord.profileImage) {
+            resolvedDriverImage = userRecord.profileImage;
+          }
+          const { driverService } = await import('./driverService.js');
+          const ratingsData = await driverService.getDriverRatings(driverId);
+          resolvedRating = ratingsData.averageRating ?? 5.0;
+          resolvedTotalRatings = ratingsData.totalRatings ?? 0;
+        }
+      }
+    } catch (_) {}
+
     // Check if driver already sent an offer - if so, update it instead of failing
     const existingIndex = ride.offers.findIndex(o => o.driverId === driverId);
     let offer;
     if (existingIndex !== -1) {
       ride.offers[existingIndex].offerAmount = offerAmount;
       ride.offers[existingIndex].timestamp = new Date().toISOString();
-      if (driverName) ride.offers[existingIndex].driverName = driverName;
-      if (driverPhone) ride.offers[existingIndex].driverPhone = driverPhone;
+      if (resolvedDriverName) ride.offers[existingIndex].driverName = resolvedDriverName;
+      if (resolvedDriverPhone) ride.offers[existingIndex].driverPhone = resolvedDriverPhone;
+      if (resolvedDriverImage) ride.offers[existingIndex].driverImage = resolvedDriverImage;
+      ride.offers[existingIndex].rating = resolvedRating;
+      ride.offers[existingIndex].totalRatings = resolvedTotalRatings;
       offer = ride.offers[existingIndex];
     } else {
       offer = {
         driverId,
-        driverName: driverName || 'كابتن زوون',
-        driverPhone: driverPhone || '',
+        driverName: resolvedDriverName || 'كابتن زوون',
+        driverPhone: resolvedDriverPhone || '',
+        driverImage: resolvedDriverImage,
+        rating: resolvedRating,
+        totalRatings: resolvedTotalRatings,
         offerAmount,
         status: 'pending',
         timestamp: new Date().toISOString(),
@@ -699,6 +798,9 @@ class TripService {
         driverId,
         driverName: offer.driverName,
         driverPhone: offer.driverPhone,
+        driverImage: offer.driverImage,
+        rating: offer.rating,
+        totalRatings: offer.totalRatings,
         offerAmount: offer.offerAmount,
         price: offer.offerAmount,
         offersCount: ride.offers.length,
@@ -755,6 +857,18 @@ class TripService {
     ride.driverId = driverId;
     ride.driverName = offer.driverName;
     ride.driverPhone = offer.driverPhone;
+    ride.driverImage = offer.driverImage;
+    ride.driverRating = offer.rating;
+    ride.driverTotalRatings = offer.totalRatings;
+    ride.driver = {
+      id: driverId,
+      name: offer.driverName,
+      phone: offer.driverPhone,
+      profileImage: offer.driverImage,
+      driverImage: offer.driverImage,
+      rating: offer.rating,
+      totalRatings: offer.totalRatings,
+    };
     ride.finalFare = offer.offerAmount;
     ride.fareEstimate = offer.offerAmount;
     ride.updatedAt = new Date().toISOString();
@@ -821,6 +935,11 @@ class TripService {
         customerPhone: ride.userPhone,
         userName: ride.userName,
         userPhone: ride.userPhone,
+        driverName: offer.driverName,
+        driverPhone: offer.driverPhone,
+        driverImage: offer.driverImage,
+        driverRating: offer.rating,
+        driverTotalRatings: offer.totalRatings,
       });
     }
 
