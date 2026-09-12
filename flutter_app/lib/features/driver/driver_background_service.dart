@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 
@@ -16,6 +17,9 @@ class DriverBackgroundService {
       DriverBackgroundService._internal();
   factory DriverBackgroundService() => _instance;
   DriverBackgroundService._internal();
+
+  static const MethodChannel _platformChannel =
+      MethodChannel('com.zoon.driver/background_service');
 
   static const String _foregroundChannelId = 'zoon_driver_foreground';
   static const String _foregroundChannelName = 'خدمة كابتن زوون';
@@ -40,6 +44,13 @@ class DriverBackgroundService {
     if (_isRunning) return;
     _driverId = driverId;
     _isRunning = true;
+
+    // تشغيل الـ Foreground Service الأصيل لنظام أندرويد لإبقاء الشبكة والسوكيت نشطين
+    try {
+      await _platformChannel.invokeMethod('startService');
+    } catch (e) {
+      debugPrint('[DriverBgService] Platform service start error: $e');
+    }
 
     // إنشاء قناة الإشعار الثابت
     await _createForegroundChannel();
@@ -73,6 +84,13 @@ class DriverBackgroundService {
     _bgSocket?.disconnect();
     _bgSocket?.dispose();
     _bgSocket = null;
+
+    // إيقاف الـ Foreground Service الأصيل
+    try {
+      await _platformChannel.invokeMethod('stopService');
+    } catch (e) {
+      debugPrint('[DriverBgService] Platform service stop error: $e');
+    }
 
     // إزالة الإشعار الثابت
     await _notificationsPlugin.cancel(_foregroundNotificationId);

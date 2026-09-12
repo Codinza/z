@@ -144,7 +144,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     for (var controller in _offerControllers.values) {
       controller.dispose();
     }
-    DriverBackgroundService().stopService();
+    // Keep DriverBackgroundService running in background
     super.dispose();
   }
 

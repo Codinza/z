@@ -33,6 +33,9 @@ class NotificationService {
 
     await _notificationsPlugin.initialize(initializationSettings);
 
+    // Cancel all stale notifications to ensure Android notification buffer is clean
+    await _notificationsPlugin.cancelAll();
+
     // Create high importance notification channel explicitly for Android
     final androidImplementation = _notificationsPlugin
         .resolvePlatformSpecificImplementation<
@@ -67,6 +70,7 @@ class NotificationService {
   static const String _alertChannelId = 'zoon_driver_trip_alerts';
   static const String _alertChannelName = 'تنبيهات طلبات الكابتن الفورية';
   static const String _alertChannelDesc = 'تنبيهات رنين واهتزاز فورية ومستمرة عند ورود مشاوير جديدة للكابتن';
+  static const int driverTripAlertNotificationId = 77777;
 
   Future<void> requestPermission() async {
     if (kIsWeb) return;
@@ -122,7 +126,7 @@ class NotificationService {
   }) async {
     if (kIsWeb) return;
 
-    final notifId = tripId.hashCode.abs().remainder(100000);
+    const notifId = driverTripAlertNotificationId;
 
     final AndroidNotificationDetails alertDetails = AndroidNotificationDetails(
       _alertChannelId,
@@ -161,5 +165,10 @@ class NotificationService {
       platformDetails,
       payload: tripId,
     );
+  }
+
+  Future<void> clearTripAlert() async {
+    if (kIsWeb) return;
+    await _notificationsPlugin.cancel(driverTripAlertNotificationId);
   }
 }

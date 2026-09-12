@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../auth/auth_service.dart';
+import 'driver_background_service.dart';
 import 'driver_dashboard_screen.dart';
 import 'driver_archive_screen.dart';
 import 'driver_earnings_screen.dart';
@@ -22,12 +24,28 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _startDriverBackgroundService();
+  }
+
+  Future<void> _startDriverBackgroundService() async {
+    final driverId = await AuthService.getUserId();
+    if (driverId != null && driverId.isNotEmpty) {
+      DriverBackgroundService().startService(driverId);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
         backgroundColor: const Color(0xff0B0E14),
-        body: _screens[_currentIndex],
+        body: IndexedStack(
+          index: _currentIndex,
+          children: _screens,
+        ),
         bottomNavigationBar: SafeArea(
           minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Container(
