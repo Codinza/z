@@ -1,5 +1,14 @@
 import 'package:flutter/material.dart';
 import '../auth/api_service.dart';
+import '../auth/auth_service.dart';
+import '../auth/login_screen.dart';
+import '../notifications/notifications_screen.dart';
+import '../payment/payment_method_screen.dart';
+import '../settings/contact_us_screen.dart';
+import '../profile/personal_data_screen.dart';
+import '../profile/saved_addresses_screen.dart';
+import '../profile/security_screen.dart';
+import '../profile/about_app_screen.dart';
 
 class CustomerProfileScreen extends StatefulWidget {
   const CustomerProfileScreen({super.key});
@@ -26,12 +35,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       if (!mounted) return;
       setState(() {
         _profileData = profile;
+        _errorMessage = '';
         _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _errorMessage = 'تعذر تحميل الملف الشخصي، يرجى المحاولة مرة أخرى';
         _isLoading = false;
       });
     }
@@ -120,20 +130,155 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: Column(
                             children: [
-                              _buildProfileMenuItem(Icons.person, 'بيانات شخصية', () {}),
-                              _buildProfileMenuItem(Icons.location_on, 'العناوين المحفوظة', () {}),
-                              _buildProfileMenuItem(Icons.payment, 'طرق الدفع', () {}),
-                              _buildProfileMenuItem(Icons.notifications, 'الإشعارات', () {}),
-                              _buildProfileMenuItem(Icons.security, 'الأمان', () {}),
-                              _buildProfileMenuItem(Icons.help, 'المساعدة والدعم', () {}),
-                              _buildProfileMenuItem(Icons.info, 'عن التطبيق', () {}),
+                              _buildProfileMenuItem(
+                                Icons.person,
+                                'بيانات شخصية',
+                                () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => PersonalDataScreen(
+                                        initialProfile: _profileData,
+                                      ),
+                                    ),
+                                  ).then((val) {
+                                    if (val == true) _loadProfile();
+                                  });
+                                },
+                              ),
+                              _buildProfileMenuItem(
+                                Icons.location_on,
+                                'العناوين المحفوظة',
+                                () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const SavedAddressesScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              _buildProfileMenuItem(
+                                Icons.payment,
+                                'طرق الدفع',
+                                () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const PaymentMethodScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              _buildProfileMenuItem(
+                                Icons.notifications,
+                                'الإشعارات',
+                                () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const NotificationsScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              _buildProfileMenuItem(
+                                Icons.security,
+                                'الأمان',
+                                () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const SecurityScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              _buildProfileMenuItem(
+                                Icons.help,
+                                'المساعدة والدعم',
+                                () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const ContactUsScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              _buildProfileMenuItem(
+                                Icons.info,
+                                'عن التطبيق',
+                                () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const AboutAppScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
                               _buildProfileMenuItem(
                                 Icons.logout,
                                 'تسجيل الخروج',
-                                () {},
+                                () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      backgroundColor: const Color(0xff1A1D21),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(18),
+                                      ),
+                                      title: const Text(
+                                        'تسجيل الخروج',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      content: const Text(
+                                        'هل أنت متأكد من رغبتك في تسجيل الخروج من حسابك؟',
+                                        style: TextStyle(color: Color(0xffCBD5E1)),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx),
+                                          child: const Text(
+                                            'إلغاء',
+                                            style: TextStyle(color: Color(0xff94A3B8)),
+                                          ),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: () async {
+                                            Navigator.pop(ctx);
+                                            await AuthService.logout();
+                                            if (context.mounted) {
+                                              Navigator.of(context,
+                                                      rootNavigator: true)
+                                                  .pushAndRemoveUntil(
+                                                MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        const LoginScreen()),
+                                                (route) => false,
+                                              );
+                                            }
+                                          },
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xffff4444),
+                                          ),
+                                          child: const Text(
+                                            'تسجيل الخروج',
+                                            style: TextStyle(color: Colors.white),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
                                 isLast: true,
                                 textColor: const Color(0xffff4444),
                               ),
+                              const SizedBox(height: 100),
                             ],
                           ),
                         ),

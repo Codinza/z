@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { env } from '../config/env.js';
+import logger from '../utils/logger.js';
 const prisma = new PrismaClient();
 
 export const createPaymobCheckout = async (req, res) => {
@@ -92,7 +93,7 @@ export const createPaymobCheckout = async (req, res) => {
       checkoutUrl: `https://accept.paymob.com/unifiedcheckout/?payment_token=${encodeURIComponent(paymentToken)}`,
     });
   } catch (error) {
-    console.error('Paymob checkout error:', error);
+    logger.error('Paymob checkout failed', { error: error.message, stack: error.stack });
     res.status(502).json({ error: 'Unable to create Paymob checkout session' });
   }
 };
@@ -127,7 +128,7 @@ export const createPayment = async (req, res) => {
 
     res.status(201).json(payment);
   } catch (error) {
-    console.error('Create Payment Error:', error);
+    logger.error('Create payment failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to process payment' });
   }
 };
@@ -145,7 +146,7 @@ export const getPaymentByTrip = async (req, res) => {
     
     res.json(payment);
   } catch (error) {
-    console.error('Get Payment Error:', error);
+    logger.error('Get payment failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch payment details' });
   }
 };

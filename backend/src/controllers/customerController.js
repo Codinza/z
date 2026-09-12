@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma.js';
+import logger from '../utils/logger.js';
 
 export const customerController = {
   // Get customer profile
@@ -25,7 +26,7 @@ export const customerController = {
 
       res.json(user);
     } catch (error) {
-      console.error('Error fetching profile:', error);
+      logger.error('Failed to fetch profile', { error: error.message, stack: error.stack });
       res.status(500).json({ error: 'Failed to fetch profile' });
     }
   },
@@ -105,7 +106,7 @@ export const customerController = {
         transactions,
       });
     } catch (error) {
-      console.error('Error fetching balance:', error);
+      logger.error('Failed to fetch balance', { error: error.message, stack: error.stack });
       res.status(500).json({ error: 'Failed to fetch balance' });
     }
   },
@@ -181,7 +182,7 @@ export const customerController = {
 
       res.json(allTrips.slice(0, limit));
     } catch (error) {
-      console.error('Error fetching orders:', error);
+      logger.error('Failed to fetch orders', { error: error.message, stack: error.stack });
       res.status(500).json({ error: 'Failed to fetch orders' });
     }
   },
@@ -217,7 +218,7 @@ export const customerController = {
 
       res.json(formattedTrips);
     } catch (error) {
-      console.error('Error fetching trips history:', error);
+      logger.error('Failed to fetch trips history', { error: error.message, stack: error.stack });
       res.status(500).json({ error: 'Failed to fetch trips history' });
     }
   },
@@ -259,7 +260,7 @@ export const customerController = {
         newBalance: user.walletBalance,
       });
     } catch (error) {
-      console.error('Error adding funds:', error);
+      logger.error('Failed to add funds', { error: error.message, stack: error.stack });
       res.status(500).json({ error: 'Failed to add funds' });
     }
   },
@@ -400,7 +401,7 @@ export const customerController = {
 
       res.json(recurring);
     } catch (error) {
-      console.error('Error fetching recurring trips:', error);
+      logger.error('Failed to fetch recurring trips', { error: error.message, stack: error.stack });
       res.status(500).json({ error: 'Failed to fetch recurring trips' });
     }
   },
@@ -442,7 +443,7 @@ export const customerController = {
 
       res.json({ success: true, user: updatedUser });
     } catch (error) {
-      console.error('Error updating profile:', error);
+      logger.error('Failed to update profile', { error: error.message, stack: error.stack });
       res.status(500).json({ error: 'Failed to update profile' });
     }
   },

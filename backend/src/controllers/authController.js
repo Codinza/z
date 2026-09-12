@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
+import logger from '../utils/logger.js';
 
 const prisma = new PrismaClient();
 
@@ -53,7 +54,7 @@ export const register = async (req, res) => {
       ...tokens,
     });
   } catch (error) {
-    console.error('Register Error:', error);
+    logger.error('Registration failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Registration failed' });
   }
 };
@@ -102,10 +103,11 @@ export const login = async (req, res) => {
     res.json({
       message: 'Login successful',
       user: { id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, driverStatus },
+      driver: driverStatus ? { status: driverStatus } : null,
       ...tokens,
     });
   } catch (error) {
-    console.error('Login Error:', error);
+    logger.error('Login failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Login failed' });
   }
 };
@@ -131,7 +133,7 @@ export const guestLogin = async (req, res) => {
       ...tokens,
     });
   } catch (error) {
-    console.error('Guest Login Error:', error);
+    logger.error('Guest login failed', { error: error.message, stack: error.stack });
     return res.status(500).json({ error: 'Guest login failed' });
   }
 };
@@ -163,7 +165,7 @@ export const getProfile = async (req, res) => {
     }
     res.json({ user, driverInfo });
   } catch (error) {
-    console.error('Profile Error:', error);
+    logger.error('Failed to fetch profile', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch profile' });
   }
 };
@@ -199,7 +201,7 @@ export const changePassword = async (req, res) => {
 
     res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح' });
   } catch (error) {
-    console.error('Change Password Error:', error);
+    logger.error('Change password failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'حدث خطأ أثناء تغيير كلمة المرور' });
   }
 };

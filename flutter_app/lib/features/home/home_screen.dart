@@ -15,9 +15,11 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/network/api_client.dart';
 import '../../core/config/app_config.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/services/location_service.dart';
 import '../notifications/notifications_screen.dart';
-import '../settings/settings_screen.dart';
+import '../auth/auth_service.dart';
 import 'order_tracking_screen.dart';
+import 'customer_drawer.dart';
 
 class HomeScreen extends StatefulWidget {
   final String initialService;
@@ -34,6 +36,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final flutter_map.MapController _flutterMapController = flutter_map.MapController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
@@ -45,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<latlong.LatLng> _routePoints = [];
   bool _isLocating = true;
   String? _currentOrderId;
+  bool? _currentOrderIsTrip;
   bool _isRequestingOrder = false;
   String _shipmentType = 'طرد';
   String _shipmentSize = 'متوسطة';
@@ -54,6 +58,63 @@ class _HomeScreenState extends State<HomeScreen> {
 
   late String _selectedService;
   static const latlong.LatLng _defaultLocation = latlong.LatLng(30.78, 29.65);
+
+  // ── Pricing System (8.5 EGP/km with flexible upper bounds and limited discount) ──
+  static const double _pricePerKm = 8.5; // 8.5 EGP per kilometer
+  static const double _minBaseFare = 20.0; // Minimum base starting fare
+  static const double _maxDiscountRatio = 0.15; // Max 15% discount limit
+
+  double? _estimatedDistanceKm;
+  double? _baseEstimatedPrice;
+
+  double get _minAllowedPrice {
+    if (_baseEstimatedPrice == null) return _minBaseFare;
+    final discounted = (_baseEstimatedPrice! * (1.0 - _maxDiscountRatio)).roundToDouble();
+    return discounted < _minBaseFare ? _minBaseFare : discounted;
+  }
+
+  void _calculateFareFromDistance(double distanceKm) {
+    if (!mounted) return;
+    final rawFare = distanceKm * _pricePerKm;
+    final fare = (rawFare < _minBaseFare ? _minBaseFare : rawFare).roundToDouble();
+    setState(() {
+      _estimatedDistanceKm = distanceKm;
+      _baseEstimatedPrice = fare;
+      _priceController.text = fare.toInt().toString();
+    });
+  }
+
+  void _increasePrice([double step = 5.0]) {
+    final current = double.tryParse(_priceController.text) ?? (_baseEstimatedPrice ?? 50.0);
+    final next = (current + step).roundToDouble();
+    setState(() {
+      _priceController.text = next.toInt().toString();
+    });
+  }
+
+  void _decreasePrice([double step = 5.0]) {
+    final current = double.tryParse(_priceController.text) ?? (_baseEstimatedPrice ?? 50.0);
+    final minLimit = _minAllowedPrice;
+    final next = (current - step).roundToDouble();
+    if (next < minLimit) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'لا يمكن تخفيض السعر أكثر من ذلك. الحد الأدنى المسموح به هو ${minLimit.toInt()} ج.م',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      setState(() {
+        _priceController.text = minLimit.toInt().toString();
+      });
+      return;
+    }
+    setState(() {
+      _priceController.text = next.toInt().toString();
+    });
+  }
 
   @override
   void initState() {
@@ -67,24 +128,35 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadCurrentOrder() async {
     final prefs = await SharedPreferences.getInstance();
     final orderId = prefs.getString('current_order_id');
+    final isTrip = prefs.getBool('current_order_is_trip');
     if (orderId != null && mounted) {
       setState(() {
         _currentOrderId = orderId;
+        _currentOrderIsTrip = isTrip;
       });
     }
   }
 
-  Future<void> _saveCurrentOrder(String orderId) async {
+  Future<void> _saveCurrentOrder(String orderId, {bool isTrip = false}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('current_order_id', orderId);
+    await prefs.setBool('current_order_is_trip', isTrip);
+    if (mounted) {
+      setState(() {
+        _currentOrderId = orderId;
+        _currentOrderIsTrip = isTrip;
+      });
+    }
   }
 
   Future<void> _clearCurrentOrder() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('current_order_id');
+    await prefs.remove('current_order_is_trip');
     if (mounted) {
       setState(() {
         _currentOrderId = null;
+        _currentOrderIsTrip = null;
       });
     }
   }
@@ -111,13 +183,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (origin == null) return;
 
+    // Fast direct distance calculation
+    final directDistMeters = Geolocator.distanceBetween(
+      origin.latitude,
+      origin.longitude,
+      destination.latitude,
+      destination.longitude,
+    );
+    _calculateFareFromDistance(directDistMeters / 1000.0);
+
     try {
       final response = await Dio().get(
         'https://router.project-osrm.org/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}',
         queryParameters: {'overview': 'full', 'geometries': 'geojson'},
       );
-      final coordinates =
-          response.data['routes']?[0]?['geometry']?['coordinates'];
+      final route = response.data['routes']?[0];
+      final coordinates = route?['geometry']?['coordinates'];
+      final roadDistanceMeters = route?['distance'];
+      if (roadDistanceMeters is num && roadDistanceMeters > 0) {
+        _calculateFareFromDistance(roadDistanceMeters.toDouble() / 1000.0);
+      }
+
       if (coordinates is! List || !mounted) return;
 
       final routePoints = coordinates
@@ -141,6 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required IconData icon,
   }) {
     final selected = _selectedService == service;
+
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -149,73 +236,86 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        height: 142,
-        padding: const EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 200),
+        height: 68,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xff111315) : Colors.white,
-          borderRadius: BorderRadius.circular(22),
+          color: selected ? const Color(0xff111315) : const Color(0xff111315),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected ? const Color(0xff111315) : const Color(0xffE4E7EA),
+            color: selected
+                ? const Color(0xffF97316)
+                : const Color(0xff2A2D33),
+            width: selected ? 1.5 : 1.0,
           ),
           boxShadow: [
             BoxShadow(
               color: selected
-                  ? const Color(0xffF97316).withOpacity(.18)
-                  : Colors.black.withOpacity(.04),
-              blurRadius: selected ? 18 : 10,
-              offset: const Offset(0, 6),
+                  ? const Color(0xffF97316).withOpacity(0.2)
+                  : Colors.black.withOpacity(0.2),
+              blurRadius: selected ? 12 : 6,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Row(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? const Color(0xffF97316).withOpacity(.16)
-                        : const Color(0xffF1F3F4),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(
-                    icon,
-                    color: selected ? const Color(0xffF97316) : const Color(0xff52606D),
-                    size: 24,
-                  ),
-                ),
-                if (selected)
-                  const Icon(Icons.check_circle, color: Color(0xffF97316), size: 20),
-              ],
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: selected
+                    ? const Color(0xffF97316).withOpacity(0.18)
+                    : const Color(0xff1A1D21),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: selected
+                    ? const Color(0xffF97316)
+                    : const Color(0xff94A3B8),
+                size: 22,
+              ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: selected ? Colors.white : const Color(0xff111315),
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: selected ? Colors.white : const Color(0xffCBD5E1),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: selected ? const Color(0xffC9D0D5) : const Color(0xff7B8794),
-                    fontSize: 12,
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: selected
+                          ? const Color(0xffF97316)
+                          : const Color(0xff64748B),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            if (selected)
+              Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(
+                  color: Color(0xffF97316),
+                  shape: BoxShape.circle,
+                ),
+              ),
           ],
         ),
       ),
@@ -246,52 +346,111 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _socket!.on('order_status_changed', (data) {
       debugPrint('Order status changed: $data');
-      if (mounted &&
-          _currentOrderId != null &&
-          data['orderId'] == _currentOrderId) {
-        if (data['status'] == 'COMPANY_ACCEPTED') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('تم قبول الطلب من الشركة!')),
-          );
-          NotificationService().showNotification(
-            id: 1,
-            title: 'تحديث الطلب',
-            body: 'تم قبول الطلب من الشركة!',
-          );
-        } else if (data['status'] == 'PRICE_SENT') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content:
-                    Text('تم استقبال عرض سعر جديد: ${data['price']} جنيه')),
-          );
-        } else if (data['status'] == 'COMPLETED' ||
-            data['status'] == 'CANCELLED') {
-          _clearCurrentOrder();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(
-                    'الطلب ${data['status'] == 'COMPLETED' ? 'اكتمل' : 'ألغي'}')),
-          );
-        }
+      if (data is! Map) return;
+      final status = data['status']?.toString();
+      final orderId = data['orderId']?.toString();
+      final price = data['price'] ?? data['offerAmount'];
+
+      if (status == 'PRICE_SENT') {
+        NotificationService().showNotification(
+          title: 'عرض سعر جديد لشحنتك! 🏷️',
+          body: price != null ? 'وصلك عرض سعر جديد بقيمة $price ج.م' : 'وصلك عرض سعر جديد لطلب الشحن',
+        );
+      } else if (status == 'COMPANY_ACCEPTED' || status == 'CONFIRMED' || status == 'CUSTOMER_APPROVED') {
+        NotificationService().showNotification(
+          title: 'تم تأكيد طلب الشحن! 🚚',
+          body: 'وافقت شركة الشحن على طلبك وجاري تحضير الشحن والتوصيل.',
+        );
+      } else if (status == 'COMPANY_REJECTED') {
+        NotificationService().showNotification(
+          title: 'تم رفض طلب الشحن ✕',
+          body: data['reason']?.toString() ?? 'تم رفض الطلب من قبل شركة الشحن.',
+        );
+      } else if (status == 'IN_PROGRESS') {
+        NotificationService().showNotification(
+          title: 'شحنتك في الطريق! 📦💨',
+          body: 'تم استلام الشحنة وهي الآن قيد التوصيل لوجهتك.',
+        );
+      } else if (status == 'COMPLETED') {
+        NotificationService().showNotification(
+          title: 'تم تسليم الشحنة بنجاح! 📦✅',
+          body: 'تم إيصال الطرد وتسليمه بنجاح. شكراً لاختيارك زوون.',
+        );
+      } else if (status == 'CANCELLED') {
+        NotificationService().showNotification(
+          title: 'تم إلغاء الشحنة ⚠️',
+          body: 'تم إلغاء طلب الشحن رقم ${orderId ?? ''}',
+        );
+      }
+      if (mounted) {
+        _loadCurrentOrder();
       }
     });
 
     // Listen for driver offers on limousine trips
     _socket!.on('driver_offer', (data) {
       debugPrint('Driver offer received: $data');
-      if (mounted && _currentOrderId != null &&
-          data['rideId'] == _currentOrderId) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('عرض جديد من ${data['driverName'] ?? 'سائق'}: ${data['offerAmount']} جنيه'),
-            duration: const Duration(seconds: 4),
-          ),
-        );
+      if (data is! Map) return;
+      final driverName = data['driverName'] ?? 'كابتن';
+      final offerAmount = data['offerAmount'] ?? data['price'] ?? '';
+      NotificationService().showNotification(
+        title: 'وصلك عرض مشوار جديد! 💰',
+        body: '$driverName قدم عرضاً بقيمة $offerAmount ج.م لرحلتك',
+      );
+      if (mounted) {
+        _loadCurrentOrder();
+      }
+    });
+
+    // Listen for driver acceptance
+    _socket!.on('driver_accepted', (data) {
+      if (data is! Map) return;
+      NotificationService().showNotification(
+        title: 'الكابتن قبل رحلتك! 🚗',
+        body: 'قبل الكابتن طلب المشوار وهو في طريقه إليك الآن',
+      );
+      if (mounted) {
+        _loadCurrentOrder();
+      }
+    });
+
+    // Listen for trip status updates (accepted, driver_arriving, driver_arrived, started, completed, cancelled)
+    _socket!.on('trip_status_changed', (data) {
+      if (data is! Map) return;
+      final status = data['status']?.toString();
+      if (status == 'accepted') {
         NotificationService().showNotification(
-          id: 2,
-          title: 'عرض سعر جديد! 💰',
-          body: '${data['driverName'] ?? 'سائق'} عرض ${data['offerAmount']} جنيه',
+          title: 'تم تأكيد الرحلة! 🚗',
+          body: 'تم تعيين الكابتن وهو قادم إليك في نقطة الاستلام',
         );
+      } else if (status == 'driver_arriving') {
+        NotificationService().showNotification(
+          title: 'الكابتن يقترب منك! 📍',
+          body: 'الكابتن على بعد خطوات من موقعك',
+        );
+      } else if (status == 'driver_arrived') {
+        NotificationService().showNotification(
+          title: 'الكابتن وصل! 🏁',
+          body: 'الكابتن وصل لنقطة الانطلاق وهو في انتظارك الآن',
+        );
+      } else if (status == 'started' || status == 'in_progress') {
+        NotificationService().showNotification(
+          title: 'بدأت الرحلة 🛣️',
+          body: 'نتمنى لك مشواراً ممتعاً وآمناً مع زوون',
+        );
+      } else if (status == 'completed') {
+        NotificationService().showNotification(
+          title: 'وصلت بالسلامة! ✅',
+          body: 'تم إكمال الرحلة بنجاح، شكراً لاختيارك زوون',
+        );
+      } else if (status == 'cancelled') {
+        NotificationService().showNotification(
+          title: 'تم إلغاء الرحلة ❌',
+          body: 'تم إلغاء طلب الرحلة',
+        );
+      }
+      if (mounted) {
+        _loadCurrentOrder();
       }
     });
 
@@ -322,11 +481,30 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    final proposedFare = double.tryParse(_priceController.text) ?? 0.0;
+    if (_baseEstimatedPrice != null && proposedFare < _minAllowedPrice) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'عفواً، السعر المقترح (${proposedFare.toInt()} ج.م) أقل من الحد الأدنى (${_minAllowedPrice.toInt()} ج.م) لمسافة ${_estimatedDistanceKm?.toStringAsFixed(1)} كم.\nيمكنك زيادة السعر أو التخفيض بنسبة بسيطة فقط (8.5 ج.م/كم).',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: const Color(0xffDC2626),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isRequestingOrder = true;
     });
 
     try {
+      final customerPhone = await AuthService.getUserPhone();
+      final customerName = await AuthService.getUserName();
+      final userId = await AuthService.getUserId();
+
       // Send as a TRIP request (goes to drivers) not an ORDER (goes to companies)
       final response = await ApiClient().dio.post(
         '/api/trips/request',
@@ -344,6 +522,12 @@ class _HomeScreenState extends State<HomeScreen> {
           'proposedFare': double.parse(_priceController.text),
           'notes':
               _notesController.text.isNotEmpty ? _notesController.text : null,
+          if (customerPhone != null && customerPhone.isNotEmpty)
+            'customerPhone': customerPhone,
+          if (customerName != null && customerName.isNotEmpty)
+            'customerName': customerName,
+          if (userId != null && userId.isNotEmpty)
+            'userId': userId,
         },
       );
 
@@ -428,6 +612,21 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_priceController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('برجاء إدخال السعر المقترح')),
+      );
+      return;
+    }
+
+    final proposedFare = double.tryParse(_priceController.text) ?? 0.0;
+    if (_baseEstimatedPrice != null && proposedFare < _minAllowedPrice) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'عفواً، السعر المقترح (${proposedFare.toInt()} ج.م) أقل من الحد الأدنى (${_minAllowedPrice.toInt()} ج.م) لمسافة ${_estimatedDistanceKm?.toStringAsFixed(1)} كم.\nيمكنك زيادة السعر أو التخفيض بنسبة بسيطة فقط.',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: const Color(0xffDC2626),
+          duration: const Duration(seconds: 4),
+        ),
       );
       return;
     }
@@ -523,8 +722,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _resetForm() {
-    _priceController.clear();
     _notesController.clear();
+    if (_destinationLocation == null) {
+      _priceController.clear();
+      _estimatedDistanceKm = null;
+      _baseEstimatedPrice = null;
+    } else if (_baseEstimatedPrice != null) {
+      _priceController.text = _baseEstimatedPrice!.toInt().toString();
+    }
   }
 
   Future<void> _determineLocation() async {
@@ -533,39 +738,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() {
-          _isLocating = false;
-        });
+      final position = await LocationService.getCurrentPosition();
+      if (position == null) {
+        if (mounted) {
+          setState(() {
+            _isLocating = false;
+          });
+        }
         return;
       }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied) {
-        setState(() {
-          _isLocating = false;
-        });
-        return;
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          _isLocating = false;
-        });
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
 
       final location = latlong.LatLng(position.latitude, position.longitude);
 
@@ -649,614 +830,1255 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  InputDecoration _inputDecoration({
+    required String hintText,
+    required String labelText,
+    required IconData prefixIcon,
+    Color? iconColor,
+  }) {
+    return InputDecoration(
+      hintText: hintText,
+      labelText: labelText,
+      hintStyle: const TextStyle(color: Color(0xff64748B), fontSize: 13.5),
+      labelStyle: const TextStyle(
+        color: Color(0xff94A3B8),
+        fontSize: 13.5,
+        fontWeight: FontWeight.w500,
+      ),
+      prefixIcon: Icon(
+        prefixIcon,
+        color: iconColor ?? const Color(0xff94A3B8),
+        size: 20,
+      ),
+      filled: true,
+      fillColor: const Color(0xff161B24),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xff252E3E)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xff252E3E)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xffF97316), width: 1.5),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayLocation = _currentLocation ?? _defaultLocation;
-    final isLimousine = _selectedService == 'limousine';
-    final serviceColor = const Color(0xff111315);
-    final serviceTitle = isLimousine ? 'رحلة جديدة' : 'شحنة جديدة';
 
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(serviceTitle),
-          backgroundColor: const Color(0xff111315),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          centerTitle: true,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(
-              bottom: Radius.circular(26),
+        key: _scaffoldKey,
+        drawer: const CustomerDrawer(),
+        backgroundColor: const Color(0xff0B0E14),
+        body: Stack(
+          children: [
+            // ── 1. Full Screen Interactive Map ──
+            Positioned.fill(
+              child: _buildMapLayer(displayLocation),
             ),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.notifications),
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.16),
-                foregroundColor: Colors.white,
-                shape: const CircleBorder(),
+
+            // Top gradient overlay for contrast with floating header
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 120,
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xff0B0E14).withOpacity(0.85),
+                        const Color(0xff0B0E14).withOpacity(0.0),
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                ),
               ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => const NotificationsScreen()),
-                );
-              },
             ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.16),
-                foregroundColor: Colors.white,
-                shape: const CircleBorder(),
+
+            // ── 2. Top Floating Header ──
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: _buildTopFloatingHeader(),
               ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => const SettingsScreen()),
-                );
-              },
             ),
+
+            // ── 3. Floating Map Controls ──
+            _buildFloatingMapControls(),
+
+            // ── 4. Premium Services Bottom Sheet ──
+            _buildBottomSheet(),
           ],
         ),
-        body: SingleChildScrollView(
-          child: Column(
-          children: [
-            if (widget.showServiceSelector) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 20,
-                      decoration: BoxDecoration(
-                        color: const Color(0xffF97316),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'ماذا تريد أن تفعل اليوم؟',
-                      style: TextStyle(
-                        color: Color(0xff111315),
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _buildServiceCard(
-                        service: 'shipping',
-                        title: 'شحن',
-                        subtitle: 'توصيل آمن وسريع',
-                        icon: Icons.local_shipping_outlined,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildServiceCard(
-                        service: 'limousine',
-                        title: 'ليموزين',
-                        subtitle: 'رحلة مريحة لسيارتك',
-                        icon: Icons.directions_car_outlined,
-                      ),
-                    ),
-                  ],
-                ),
+      ),
+    );
+  }
+
+  Widget _buildMapLayer(latlong.LatLng displayLocation) {
+    if (kIsWeb) {
+      return Container(
+        color: const Color(0xff0B0E14),
+        child: const Center(
+          child: Text(
+            'خريطة الويب غير متاحة.\nيرجى استخدام تطبيق الهاتف لتجربة الخريطة الفعلية.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70, fontSize: 16),
+          ),
+        ),
+      );
+    }
+
+    return flutter_map.FlutterMap(
+      mapController: _flutterMapController,
+      options: flutter_map.MapOptions(
+        initialCenter: displayLocation,
+        initialZoom: _currentLocation != null ? 15 : 13,
+        onTap: (tapPosition, point) {
+          _selectDestination(point);
+        },
+      ),
+      children: [
+        flutter_map.TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.zoon.app',
+          tileProvider: CancellableNetworkTileProvider(),
+        ),
+        if (_routePoints.length > 1) ...[
+          flutter_map.PolylineLayer(
+            polylines: [
+              flutter_map.Polyline(
+                points: _routePoints,
+                color: Colors.black.withOpacity(0.4),
+                strokeWidth: 8,
               ),
             ],
+          ),
+          flutter_map.PolylineLayer(
+            polylines: [
+              flutter_map.Polyline(
+                points: _routePoints,
+                color: const Color(0xffF97316),
+                strokeWidth: 4.5,
+              ),
+            ],
+          ),
+        ],
+        flutter_map.MarkerLayer(
+          markers: [
+            if (_currentLocation != null)
+              flutter_map.Marker(
+                point: _currentLocation!,
+                width: 44,
+                height: 44,
+                child: const _UserLocationMarker(),
+              ),
+            if (_destinationLocation != null)
+              flutter_map.Marker(
+                point: _destinationLocation!,
+                width: 44,
+                height: 44,
+                child: const _DestinationMarker(),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 
-            // ── Map area ──
-            SizedBox(
-              height: 368,
-              child: Container(
-                margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(22),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blueGrey.withOpacity(0.14),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Stack(
-                children: [
-                  if (kIsWeb)
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.blue.shade50, Colors.white],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                      ),
-                      child: const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text(
-                            'خريطة الويب غير متاحة في هذا المتصفح.\nاستخدم التطبيق على الهاتف أو الموبايل لتجربة الخريطة الفعلية.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 18),
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    flutter_map.FlutterMap(
-                      mapController: _flutterMapController,
-                      options: flutter_map.MapOptions(
-                        initialCenter: displayLocation,
-                        initialZoom: _currentLocation != null ? 15 : 13,
-                        onTap: (tapPosition, point) {
-                          _selectDestination(point);
-                        },
-                      ),
-                      children: [
-                        flutter_map.TileLayer(
-                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          userAgentPackageName: 'com.zoon.rideflow',
-                          tileProvider: CancellableNetworkTileProvider(),
-                        ),
-                        if (_routePoints.length > 1)
-                          flutter_map.PolylineLayer(
-                            polylines: [
-                              flutter_map.Polyline(
-                                points: _routePoints,
-                                color: const Color(0xffF97316),
-                                strokeWidth: 4,
-                              ),
-                            ],
-                          ),
-                        flutter_map.MarkerLayer(
-                          markers: [
-                            if (_currentLocation != null)
-                              flutter_map.Marker(
-                                point: _currentLocation!,
-                                width: 40,
-                                height: 40,
-                                child: const _PremiumMapPin(),
-                              ),
-                            if (_destinationLocation != null)
-                              flutter_map.Marker(
-                                point: _destinationLocation!,
-                                width: 40,
-                                height: 40,
-                                child: const _PremiumMapPin(),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  if (_isLocating)
-                    Container(
-                      color: Colors.black.withOpacity(0.35),
-                      child: const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 3),
-                            SizedBox(height: 16),
-                            Text('جاري تحديد موقعك...',
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (_currentLocation != null && !_isLocating)
-                    Positioned(
-                      bottom: 12,
-                      right: 12,
-                      child: FloatingActionButton.small(
-                        heroTag: 'recenter',
-                        backgroundColor: Colors.white,
-                        foregroundColor: const Color(0xff111315),
-                        onPressed: () {
-                          _moveMapTo(_currentLocation!);
-                        },
-                        child: const Icon(Icons.my_location),
-                      ),
-                    ),
+  Widget _buildTopFloatingHeader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Sidebar Menu Button (3 horizontal bars)
+          GestureDetector(
+            onTap: () => _scaffoldKey.currentState?.openDrawer(),
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xff121620).withOpacity(0.92),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xff2A3342), width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.35),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
                 ],
-                ),
+              ),
+              child: const Icon(
+                Icons.menu_rounded,
+                color: Colors.white,
+                size: 22,
               ),
             ),
+          ),
 
-            // ── Form area ──
-            Container(
+          // Center Brand & Live Status Capsule
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xff121620).withOpacity(0.92),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: const Color(0xff2A3342), width: 1.2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: const Color(0xff22C55E),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xff22C55E).withOpacity(0.6),
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'زوون | متاح الآن',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Notifications Button
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const NotificationsScreen(),
+                ),
+              );
+            },
+            child: Container(
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(24),
+                color: const Color(0xff121620).withOpacity(0.92),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xff2A3342), width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.35),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.notifications_none_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingMapControls() {
+    return Positioned(
+      left: 16,
+      top: 90,
+      child: Column(
+        children: [
+          // GPS Recenter Button
+          GestureDetector(
+            onTap: () {
+              if (_currentLocation != null) {
+                _moveMapTo(_currentLocation!);
+              } else {
+                _determineLocation();
+              }
+            },
+            child: Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: const Color(0xff121620).withOpacity(0.94),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xff2A3342), width: 1.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.4),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+            child: _isLocating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Color(0xffF97316),
+                      strokeWidth: 2.2,
+                    ),
+                  )
+                : const Icon(
+                    Icons.my_location_rounded,
+                    size: 22,
+                    color: Color(0xffF97316),
+                  ),
+            ),
+          ),
+          if (_destinationLocation != null) ...[
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _destinationLocation = null;
+                  _routePoints = [];
+                  _dropoffController.clear();
+                  _estimatedDistanceKm = null;
+                  _baseEstimatedPrice = null;
+                  _priceController.clear();
+                });
+              },
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: const Color(0xff121620).withOpacity(0.94),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.redAccent.withOpacity(0.6),
+                    width: 1.2,
                   ),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, -5))
+                      color: Colors.redAccent.withOpacity(0.25),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
                   ],
                 ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Container(
-                        constraints: const BoxConstraints(minHeight: 132),
-                        padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              serviceColor,
-                              Color.lerp(serviceColor, Colors.black, 0.22)!,
-                            ],
-                            begin: Alignment.topRight,
-                            end: Alignment.bottomLeft,
-                          ),
-                          borderRadius: BorderRadius.circular(32),
-                          boxShadow: [
-                            BoxShadow(
-                              color: serviceColor.withOpacity(0.22),
-                              blurRadius: 16,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 52,
-                                  height: 52,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.18),
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  child: Icon(
-                                    isLimousine
-                                        ? Icons.directions_car_outlined
-                                        : Icons.inventory_2_outlined,
-                                    color: Colors.white,
-                                    size: 28,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        serviceTitle,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        isLimousine ? 'تنقل بسهولة وراحة' : 'توصيل آمن وسريع',
-                                        style: TextStyle(
-                                          color: Colors.white.withOpacity(0.82),
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 9, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.18),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: const Text(
-                                    'جاهز للطلب',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            Text(
-                              isLimousine
-                                  ? 'حدد مكانك ووجهتك لطلب سيارة الآن'
-                                  : 'أدخل تفاصيل الشحنة ومكان التسليم الآن',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      if (_selectedService == 'limousine') ...[
-                        // Limousine form
-                        TextField(
-                          controller: _pickupController,
-                          decoration: InputDecoration(
-                            hintText: 'عنوان الاستلام',
-                              labelText: 'من',
-                            prefixIcon: const Icon(Icons.location_on,
-                                    color: const Color(0xffF97316)),
-                            filled: true,
-                            fillColor: Colors.grey.shade100,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _dropoffController,
-                          decoration: InputDecoration(
-                            hintText: 'عنوان الوجهة',
-                              labelText: 'إلى',
-                            prefixIcon: const Icon(Icons.location_on,
-                                color: Colors.red),
-                            filled: true,
-                            fillColor: Colors.grey.shade100,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ] else ...[
-                        // Shipping form
-                        TextField(
-                          controller: _pickupController,
-                          decoration: InputDecoration(
-                            hintText: 'عنوان الاستلام',
-                            labelText: 'من',
-                            prefixIcon: const Icon(Icons.location_on,
-                              color: Color(0xffF97316)),
-                            filled: true,
-                            fillColor: Colors.grey.shade100,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _dropoffController,
-                          decoration: InputDecoration(
-                            hintText: 'عنوان التسليم',
-                            labelText: 'إلى',
-                            prefixIcon: const Icon(Icons.location_on,
-                                color: Colors.red),
-                            filled: true,
-                            fillColor: Colors.grey.shade100,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: _shipmentType,
-                          decoration: InputDecoration(
-                            labelText: 'نوع الشحنة',
-                            prefixIcon: const Icon(Icons.inventory_2_outlined),
-                            filled: true,
-                            fillColor: Colors.grey.shade100,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'طرد', child: Text('طرد')),
-                            DropdownMenuItem(value: 'مستندات', child: Text('مستندات')),
-                            DropdownMenuItem(value: 'ظرف', child: Text('ظرف')),
-                            DropdownMenuItem(value: 'أخرى', child: Text('أخرى')),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() => _shipmentType = value);
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: _shipmentSize,
-                          decoration: InputDecoration(
-                            labelText: 'حجم الشحنة',
-                            prefixIcon: const Icon(Icons.straighten_outlined),
-                            filled: true,
-                            fillColor: Colors.grey.shade100,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'صغيرة', child: Text('صغيرة')),
-                            DropdownMenuItem(value: 'متوسطة', child: Text('متوسطة')),
-                            DropdownMenuItem(value: 'كبيرة', child: Text('كبيرة')),
-                          ],
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() => _shipmentSize = value);
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: _pickShippingDateTime,
-                          icon: const Icon(Icons.event_outlined),
-                          label: Text(
-                            _shippingDateTime == null
-                                ? 'موعد الاستلام (اختياري)'
-                                : '${_shippingDateTime!.day}/${_shippingDateTime!.month} ${_shippingDateTime!.hour.toString().padLeft(2, '0')}:${_shippingDateTime!.minute.toString().padLeft(2, '0')}',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(56),
-                            foregroundColor: const Color(0xffF97316),
-                            side: BorderSide(color: Colors.grey.shade300),
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: _pickShipmentImage,
-                          icon: Icon(_shipmentImage == null
-                              ? Icons.add_a_photo_outlined
-                              : Icons.check_circle_outline),
-                          label: Text(
-                            _shipmentImage == null
-                                ? 'إرفاق صورة للشحنة (اختياري)'
-                                : 'تم اختيار الصورة بنجاح',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(56),
-                            foregroundColor: const Color(0xffF97316),
-                            side: BorderSide(color: Colors.grey.shade300),
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-
-                      // Common fields
-                      TextField(
-                        controller: _notesController,
-                        decoration: InputDecoration(
-                          hintText: _selectedService == 'limousine'
-                              ? 'ملاحظات إضافية...'
-                              : 'تفاصيل الشحنة...',
-                          prefixIcon: const Icon(Icons.notes),
-                          filled: true,
-                          fillColor: Colors.grey.shade100,
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none),
-                        ),
-                        maxLines: 2,
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _priceController,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          hintText: 'السعر المقترح (جنيه)',
-                          prefixIcon: const Icon(Icons.attach_money),
-                          filled: true,
-                          fillColor: Colors.grey.shade100,
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Action Button
-                      ElevatedButton.icon(
-                        onPressed: (_isRequestingOrder)
-                            ? null
-                            : () {
-                                if (_selectedService == 'limousine') {
-                                  _requestLimousine();
-                                } else {
-                                  _requestShipping();
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xffF97316),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                        ),
-                        icon: _isRequestingOrder
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                    color: Colors.white, strokeWidth: 2))
-                                : Icon(isLimousine
-                                  ? Icons.directions_car_outlined
-                                  : Icons.local_shipping_outlined),
-                              label: Text(
-                                _isRequestingOrder
-                                  ? 'جاري إرسال الطلب...'
-                                  : isLimousine
-                                    ? 'اطلب ليموزين الآن'
-                                    : 'اطلب شحن الآن',
-                                style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                      ),
-
-                      // Active Order Tracking Button
-                      if (_currentOrderId != null) ...[
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => OrderTrackingScreen(
-                                  orderId: _currentOrderId!,
-                                ),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.access_time),
-                          label: const Text('متابعة الطلب الحالي'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xffF97316),
-                            side: const BorderSide(color: Color(0xffF97316)),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ],
-                    ],
+                child: const Icon(
+                  Icons.close_rounded,
+                  size: 22,
+                  color: Colors.redAccent,
                 ),
               ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomSheet() {
+    final isLimousine = _selectedService == 'limousine';
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.44,
+      minChildSize: 0.30,
+      maxChildSize: 0.88,
+      snap: true,
+      snapSizes: const [0.30, 0.44, 0.88],
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: const Color(0xff11141A),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(
+              color: const Color(0xff252E3E),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.7),
+                blurRadius: 30,
+                offset: const Offset(0, -6),
+              ),
+            ],
+          ),
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 100),
+            children: [
+              // Drag Handle
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4.5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xff475569),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Active Order Tracker Banner (if order exists)
+              if (_currentOrderId != null) ...[
+                _buildActiveOrderBanner(),
+                const SizedBox(height: 14),
+              ],
+
+              // Section Title
+              Row(
+                children: [
+                  Container(
+                    width: 3.5,
+                    height: 15,
+                    decoration: BoxDecoration(
+                      color: const Color(0xffF97316),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'الخدمات الرئيسية',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // PRIMARY HERO ACTION: Limousine Car Booking
+              _buildHeroLimousineCard(isLimousine),
+              const SizedBox(height: 10),
+
+              // SECONDARY SERVICES ROW
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildSecondaryServiceCard(
+                      serviceKey: 'shipping',
+                      title: 'شحن وطرود',
+                      subtitle: 'توصيل سريع وآمن',
+                      icon: Icons.local_shipping_outlined,
+                      isSelected: !isLimousine,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildSecondaryServiceCard(
+                      serviceKey: 'scheduled',
+                      title: 'رحلات مجدولة',
+                      subtitle: 'حجز مسبق ومطارات',
+                      icon: Icons.event_available_outlined,
+                      isSelected: false,
+                      isComingSoon: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // BOOKING FORM SECTION
+              _buildBookingForm(isLimousine),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActiveOrderBanner() {
+    final isTrip = _currentOrderIsTrip ?? (_selectedService == 'limousine');
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => OrderTrackingScreen(
+              orderId: _currentOrderId!,
+              isTrip: isTrip,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xffF97316).withOpacity(0.20),
+              const Color(0xffEA580C).withOpacity(0.08),
+            ],
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: const Color(0xffF97316).withOpacity(0.5),
+            width: 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xffF97316).withOpacity(0.12),
+              blurRadius: 12,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: const Color(0xffF97316),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xffF97316).withOpacity(0.5),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.radar_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isTrip ? 'رحلتك الحالية قيد التنفيذ' : 'شحنتك الحالية قيد المتابعة',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'انقر هنا للمتابعة المباشرة وتتبع المسار ➔',
+                    style: TextStyle(
+                      color: Color(0xffF97316),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: Color(0xffF97316),
+              size: 16,
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHeroLimousineCard(bool isSelected) {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedService = 'limousine';
+          _resetForm();
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isSelected
+                ? [
+                    const Color(0xffF97316).withOpacity(0.18),
+                    const Color(0xff18202E),
+                  ]
+                : [
+                    const Color(0xff161B24),
+                    const Color(0xff141820),
+                  ],
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? const Color(0xffF97316) : const Color(0xff252E3E),
+            width: isSelected ? 1.8 : 1.0,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isSelected
+                  ? const Color(0xffF97316).withOpacity(0.22)
+                  : Colors.black.withOpacity(0.3),
+              blurRadius: isSelected ? 16 : 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // Car Icon Badge
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? const Color(0xffF97316).withOpacity(0.2)
+                    : const Color(0xff1F2735),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSelected
+                      ? const Color(0xffF97316).withOpacity(0.6)
+                      : const Color(0xff2E3A4E),
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                Icons.directions_car_filled_rounded,
+                color: isSelected ? const Color(0xffF97316) : Colors.white,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 14),
+            // Information
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Flexible(
+                        child: Text(
+                          'طلب ليموزين فوري (VIP)',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xffF97316).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'الأساسي',
+                          style: TextStyle(
+                            color: Color(0xffF97316),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'أسرع كابتن متاح في منطقتك • تسعيرة مرنة وتفاوض مباشر',
+                    style: TextStyle(
+                      color: Color(0xff94A3B8),
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Select Indicator
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xffF97316) : Colors.transparent,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelected ? const Color(0xffF97316) : const Color(0xff475569),
+                  width: 1.8,
+                ),
+              ),
+              child: isSelected
+                  ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecondaryServiceCard({
+    required String serviceKey,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    bool isComingSoon = false,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        if (isComingSoon) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('خدمة الحجز المسبق ستتوفر قريباً!')),
+          );
+          return;
+        }
+        setState(() {
+          _selectedService = serviceKey;
+          _resetForm();
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xffF97316).withOpacity(0.12)
+              : const Color(0xff161B24),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? const Color(0xffF97316) : const Color(0xff252E3E),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xffF97316).withOpacity(0.2)
+                        : const Color(0xff1F2735),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: isSelected ? const Color(0xffF97316) : const Color(0xff94A3B8),
+                    size: 20,
+                  ),
+                ),
+                if (isComingSoon)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'قريباً',
+                      style: TextStyle(color: Color(0xff94A3B8), fontSize: 9.5),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                color: isSelected ? Colors.white : const Color(0xffCBD5E1),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: isSelected ? const Color(0xffF97316) : const Color(0xff64748B),
+                fontSize: 10.5,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookingForm(bool isLimousine) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── 1. Locations Container ──
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xff161B24),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xff252E3E), width: 1),
+          ),
+          child: Column(
+            children: [
+              // Pickup
+              Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: const BoxDecoration(
+                      color: Color(0xff22C55E),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _pickupController,
+                      style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+                        border: InputBorder.none,
+                        hintText: 'موقع الاستلام (موقعك الحالي)',
+                        hintStyle: TextStyle(color: Color(0xff64748B), fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(color: Color(0xff252E3E), height: 16),
+              // Dropoff
+              Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: const BoxDecoration(
+                      color: Color(0xffEF4444),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _dropoffController,
+                      style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+                        border: InputBorder.none,
+                        hintText: 'حدد الوجهة (انقر على الخريطة أو اكتب هنا)',
+                        hintStyle: TextStyle(color: Color(0xffF97316), fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // ── 2. Shipping Extra Options ──
+        if (!isLimousine) ...[
+          // Shipment Type Dropdown
+          DropdownButtonFormField<String>(
+            value: _shipmentType,
+            dropdownColor: const Color(0xff161B24),
+            style: const TextStyle(color: Colors.white, fontSize: 13.5),
+            decoration: _inputDecoration(
+              hintText: 'اختر نوع الشحنة',
+              labelText: 'نوع الشحنة',
+              prefixIcon: Icons.inventory_2_outlined,
+            ),
+            items: const [
+              DropdownMenuItem(value: 'طرد', child: Text('طرد', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(value: 'مستندات', child: Text('مستندات', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(value: 'ظرف', child: Text('ظرف', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(value: 'أخرى', child: Text('أخرى', style: TextStyle(color: Colors.white))),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _shipmentType = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          // Shipment Size Dropdown
+          DropdownButtonFormField<String>(
+            value: _shipmentSize,
+            dropdownColor: const Color(0xff161B24),
+            style: const TextStyle(color: Colors.white, fontSize: 13.5),
+            decoration: _inputDecoration(
+              hintText: 'اختر حجم الشحنة',
+              labelText: 'حجم الشحنة',
+              prefixIcon: Icons.straighten_outlined,
+            ),
+            items: const [
+              DropdownMenuItem(value: 'صغيرة', child: Text('صغيرة', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(value: 'متوسطة', child: Text('متوسطة', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(value: 'كبيرة', child: Text('كبيرة', style: TextStyle(color: Colors.white))),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _shipmentSize = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          // Date/Time & Photo Buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickShippingDateTime,
+                  icon: const Icon(Icons.event_outlined, size: 18, color: Color(0xffF97316)),
+                  label: Text(
+                    _shippingDateTime == null
+                        ? 'موعد الاستلام'
+                        : '${_shippingDateTime!.day}/${_shippingDateTime!.month} ${_shippingDateTime!.hour}:${_shippingDateTime!.minute.toString().padLeft(2, '0')}',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    backgroundColor: const Color(0xff161B24),
+                    side: const BorderSide(color: Color(0xff252E3E)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickShipmentImage,
+                  icon: Icon(
+                    _shipmentImage == null ? Icons.add_a_photo_outlined : Icons.check_circle_outline,
+                    size: 18,
+                    color: _shipmentImage == null ? const Color(0xffF97316) : Colors.greenAccent,
+                  ),
+                  label: Text(
+                    _shipmentImage == null ? 'إرفاق صورة' : 'تمت الإضافة',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _shipmentImage == null ? Colors.white : Colors.greenAccent,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    backgroundColor: const Color(0xff161B24),
+                    side: const BorderSide(color: Color(0xff252E3E)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // ── 3. Price Input & Quick Suggestions ──
+        if (_estimatedDistanceKm != null && _baseEstimatedPrice != null) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xff161B24),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xffF97316).withOpacity(0.35)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xffF97316).withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.straighten_rounded, size: 16, color: Color(0xffF97316)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'المسافة المقدرة: ${_estimatedDistanceKm!.toStringAsFixed(1)} كم (8.5 ج.م/كم)',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'السعر العادل: ${_baseEstimatedPrice!.toInt()} ج.م • أقل سعر مسموح: ${_minAllowedPrice.toInt()} ج.م',
+                        style: const TextStyle(
+                          color: Color(0xff94A3B8),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        TextField(
+          controller: _priceController,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800),
+          decoration: _inputDecoration(
+            hintText: 'السعر المقترح (جنيه مصري)',
+            labelText: 'السعر المقترح (ج.م)',
+            prefixIcon: Icons.payments_outlined,
+            iconColor: const Color(0xffF97316),
+          ).copyWith(
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline, color: Color(0xff94A3B8), size: 22),
+                  onPressed: () => _decreasePrice(5),
+                  tooltip: 'تخفيض السعر',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline, color: Color(0xffF97316), size: 22),
+                  onPressed: () => _increasePrice(5),
+                  tooltip: 'زيادة السعر',
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Quick Fare Suggestion Pills
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: (_baseEstimatedPrice != null
+                  ? [
+                      _baseEstimatedPrice!.toInt(),
+                      (_baseEstimatedPrice! + 10).toInt(),
+                      (_baseEstimatedPrice! + 20).toInt(),
+                      (_baseEstimatedPrice! + 50).toInt(),
+                      _minAllowedPrice.toInt(),
+                    ]
+                  : [50, 70, 100, 150])
+              .toSet()
+              .map((amt) {
+            final isBase = _baseEstimatedPrice != null && amt == _baseEstimatedPrice!.toInt();
+            final isMin = _baseEstimatedPrice != null && amt == _minAllowedPrice.toInt();
+            final isSelected = _priceController.text == amt.toString();
+            String label = '$amt ج.م';
+            if (isBase) {
+              label = 'العادل $amt ج.م';
+            } else if (isMin) {
+              label = 'أقل سعر $amt';
+            }
+
+            return GestureDetector(
+              onTap: () {
+                setState(() {
+                  _priceController.text = amt.toString();
+                });
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xffF97316).withOpacity(0.18)
+                      : const Color(0xff161B24),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(
+                    color: isSelected ? const Color(0xffF97316) : const Color(0xff2A3342),
+                    width: isSelected ? 1.4 : 1.0,
+                  ),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isSelected
+                        ? const Color(0xffF97316)
+                        : (isBase ? Colors.white : const Color(0xff94A3B8)),
+                    fontSize: 11.5,
+                    fontWeight: isSelected || isBase ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 12),
+
+        // ── 4. Notes Input ──
+        TextField(
+          controller: _notesController,
+          style: const TextStyle(color: Colors.white, fontSize: 13.5),
+          decoration: _inputDecoration(
+            hintText: isLimousine ? 'ملاحظات للسائق (اختياري)...' : 'تفاصيل الشحنة أو متطلبات خاصة...',
+            labelText: 'ملاحظات إضافية',
+            prefixIcon: Icons.notes_rounded,
+          ),
+          maxLines: 2,
+        ),
+        const SizedBox(height: 18),
+
+        // ── 5. Primary Action CTA Button ──
+        ElevatedButton.icon(
+          onPressed: _isRequestingOrder
+              ? null
+              : () {
+                  if (isLimousine) {
+                    _requestLimousine();
+                  } else {
+                    _requestShipping();
+                  }
+                },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xffF97316),
+            foregroundColor: Colors.white,
+            elevation: 4,
+            shadowColor: const Color(0xffF97316).withOpacity(0.4),
+            minimumSize: const Size.fromHeight(54),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          icon: _isRequestingOrder
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2.2,
+                  ),
+                )
+              : Icon(
+                  isLimousine
+                      ? Icons.directions_car_rounded
+                      : Icons.local_shipping_outlined,
+                  size: 22,
+                ),
+          label: Text(
+            _isRequestingOrder
+                ? 'جاري إرسال الطلب...'
+                : isLimousine
+                    ? 'تأكيد طلب ليموزين الآن ➔'
+                    : 'تأكيد طلب الشحن الآن ➔',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _UserLocationMarker extends StatelessWidget {
+  const _UserLocationMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: const Color(0xffF97316).withOpacity(0.25),
+            shape: BoxShape.circle,
+          ),
+        ),
+        Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            color: const Color(0xffF97316),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xffF97316).withOpacity(0.6),
+                blurRadius: 8,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DestinationMarker extends StatelessWidget {
+  const _DestinationMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: const Color(0xffEF4444),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xffEF4444).withOpacity(0.5),
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: const Icon(
+        Icons.flag_rounded,
+        color: Colors.white,
+        size: 20,
       ),
     );
   }

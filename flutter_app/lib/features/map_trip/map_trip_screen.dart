@@ -3,11 +3,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/network/api_client.dart';
 import '../../data/datasources/trip_remote_data_source.dart';
+import '../../core/services/location_service.dart';
 import '../../data/repositories/trip_repository_impl.dart';
 import '../payment/payment_method_screen.dart';
 import '../payment/payment_confirmation_screen.dart';
@@ -50,21 +50,8 @@ class _MapTripScreenState extends State<MapTripScreen> {
   }
 
   Future<void> _loadCurrentLocation() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.deniedForever || permission == LocationPermission.denied) {
-      return;
-    }
-
-    final position = await Geolocator.getCurrentPosition();
+    final position = await LocationService.getCurrentPosition();
+    if (position == null) return;
     final location = LatLng(position.latitude, position.longitude);
 
     setState(() {
@@ -226,7 +213,7 @@ class _MapTripScreenState extends State<MapTripScreen> {
               children: [
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.zoon.rideflow',
+                  userAgentPackageName: 'com.zoon.app',
                   tileProvider: CancellableNetworkTileProvider(),
                 ),
                 MarkerLayer(markers: markers),

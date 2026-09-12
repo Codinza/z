@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { emitOrderStatusChanged } from '../services/tripService.js';
+import logger from '../utils/logger.js';
 
 const prisma = new PrismaClient();
 
@@ -103,7 +104,7 @@ export const registerCompany = async (req, res) => {
       ...tokens,
     });
   } catch (error) {
-    console.error('Company Registration Error:', error);
+    logger.error('Company registration failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Registration failed' });
   }
 };
@@ -162,7 +163,7 @@ export const companyLogin = async (req, res) => {
       ...tokens,
     });
   } catch (error) {
-    console.error('Company Login Error:', error);
+    logger.error('Company login failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Login failed' });
   }
 };
@@ -284,7 +285,7 @@ export const getCompanyDashboard = async (req, res) => {
       stats,
     });
   } catch (error) {
-    console.error('Get Company Dashboard Error:', error);
+    logger.error('Failed to fetch company dashboard', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch dashboard' });
   }
 };
@@ -357,7 +358,7 @@ export const getCompanyOrders = async (req, res) => {
 
     res.json({ orders: processedOrders });
   } catch (error) {
-    console.error('Get Company Orders Error:', error);
+    logger.error('Failed to fetch company orders', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 };
@@ -431,7 +432,7 @@ export const reviewOrder = async (req, res) => {
       order: processedOrder,
     });
   } catch (error) {
-    console.error('Review Order Error:', error);
+    logger.error('Failed to review order', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to review order' });
   }
 };
@@ -488,7 +489,7 @@ export const acceptOrder = async (req, res) => {
       order: updatedOrder,
     });
   } catch (error) {
-    console.error('Accept Order Error:', error);
+    logger.error('Failed to accept order', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to accept order' });
   }
 };
@@ -537,7 +538,7 @@ export const rejectOrder = async (req, res) => {
       order: updatedOrder,
     });
   } catch (error) {
-    console.error('Reject Order Error:', error);
+    logger.error('Failed to reject order', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to reject order' });
   }
 };
@@ -606,7 +607,7 @@ export const sendCounterOffer = async (req, res) => {
       order: updatedOrder,
     });
   } catch (error) {
-    console.error('Send Counter Offer Error:', error);
+    logger.error('Failed to send counter offer', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to send counter offer' });
   }
 };

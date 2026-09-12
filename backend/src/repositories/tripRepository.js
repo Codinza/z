@@ -7,7 +7,7 @@ class TripRepository {
 
   async listTrips() {
     return prisma.trip.findMany({
-      include: { user: { select: { name: true, profileImage: true } } },
+      include: { user: { select: { name: true, profileImage: true, phone: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -21,7 +21,10 @@ class TripRepository {
   }
 
   async getTripById(id) {
-    return prisma.trip.findUnique({ where: { id } });
+    return prisma.trip.findUnique({
+      where: { id },
+      include: { user: { select: { name: true, profileImage: true, phone: true } } },
+    });
   }
 
   async createAssignment(data) {

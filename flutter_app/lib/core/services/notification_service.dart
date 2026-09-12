@@ -9,6 +9,10 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
+  static const String _channelId = 'zoon_notifications_channel';
+  static const String _channelName = 'إشعارات زوون الفورية';
+  static const String _channelDesc = 'تنبيهات حالة المشاوير وطلبات الشحن والعروض';
+
   Future<void> init() async {
     if (kIsWeb) return;
 
@@ -28,6 +32,23 @@ class NotificationService {
     );
 
     await _notificationsPlugin.initialize(initializationSettings);
+
+    // Create high importance notification channel explicitly for Android
+    final androidImplementation = _notificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    await androidImplementation?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _channelId,
+        _channelName,
+        description: _channelDesc,
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        enableLights: true,
+      ),
+    );
   }
 
   Future<void> requestPermission() async {
@@ -40,24 +61,39 @@ class NotificationService {
   }
 
   Future<void> showNotification({
-    required int id,
+    int? id,
     required String title,
     required String body,
   }) async {
     if (kIsWeb) return;
 
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'rideflow_channel',
-      'RideFlow Notifications',
-      channelDescription: 'Notifications for ride updates',
+    final notifId = id ?? DateTime.now().millisecondsSinceEpoch.remainder(100000);
+
+    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      _channelId,
+      _channelName,
+      channelDescription: _channelDesc,
       importance: Importance.max,
       priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      enableLights: true,
+      styleInformation: BigTextStyleInformation(
+        body,
+        contentTitle: title,
+        summaryText: 'زوون',
+      ),
     );
 
-    const NotificationDetails platformDetails = NotificationDetails(
+    final NotificationDetails platformDetails = NotificationDetails(
       android: androidDetails,
+      iOS: const DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
     );
 
-    await _notificationsPlugin.show(id, title, body, platformDetails);
+    await _notificationsPlugin.show(notifId, title, body, platformDetails);
   }
 }

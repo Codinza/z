@@ -155,97 +155,224 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('الأرباح والمحفظة'),
-        centerTitle: true,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Card(
-                    elevation: 4,
-                    color: _walletBalance < 0
-                        ? Colors.red.shade50
-                        : const Color(0xfffff4df),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(32.0),
-                      child: Column(
-                        children: [
-                          Text(
-                            'رصيد المحفظة',
-                            style: TextStyle(
-                                fontSize: 20, color: Colors.grey.shade700),
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: const Color(0xff0B0E14),
+        appBar: AppBar(
+          backgroundColor: const Color(0xff121620),
+          title: const Text(
+            'الأرباح والمحفظة',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          centerTitle: true,
+          elevation: 0,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+          ),
+        ),
+        body: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: Color(0xffF97316)))
+            : RefreshIndicator(
+                onRefresh: _fetchWallet,
+                color: const Color(0xffF97316),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+                  children: [
+                    // Main Balance Card
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xff1A202C), Color(0xff121620)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: _walletBalance < 0
+                              ? const Color(0xffEF4444).withOpacity(0.5)
+                              : const Color(0xffF97316).withOpacity(0.4),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.4),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            '${_walletBalance.toStringAsFixed(2)} ج.م',
-                            style: TextStyle(
-                              fontSize: 48,
-                              fontWeight: FontWeight.bold,
-                              color: _walletBalance < 0
-                                  ? Colors.red
-                                  : const Color(0xffF97316),
-                            ),
+                          BoxShadow(
+                            color: (_walletBalance < 0
+                                    ? const Color(0xffEF4444)
+                                    : const Color(0xffF97316))
+                                .withOpacity(0.08),
+                            blurRadius: 16,
+                            spreadRadius: -2,
                           ),
-                          if (_walletBalance < -50)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 16.0),
-                              child: Text(
-                                'الرصيد أقل من الحد المسموح. يرجى الشحن لتلقي الرحلات.',
-                                style: TextStyle(
-                                    color: Colors.red,
-                                    fontWeight: FontWeight.bold),
-                                textAlign: TextAlign.center,
-                              ),
-                            )
                         ],
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _SummaryCard(
-                          label: 'أرباح اليوم',
-                          value: '${_todayEarnings.toStringAsFixed(2)} ج.م',
-                          icon: Icons.trending_up,
-                          color: const Color(0xffF97316),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 28),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xffF97316).withOpacity(0.12),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.account_balance_wallet_rounded,
+                                color: Color(0xffF97316),
+                                size: 32,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            const Text(
+                              'رصيد المحفظة المتاح',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Color(0xff94A3B8),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
+                              children: [
+                                Text(
+                                  _walletBalance.toStringAsFixed(2),
+                                  style: TextStyle(
+                                    fontSize: 42,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.5,
+                                    color: _walletBalance < 0
+                                        ? const Color(0xffEF4444)
+                                        : const Color(0xffF97316),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'ج.م',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: _walletBalance < 0
+                                        ? const Color(0xffEF4444)
+                                        : const Color(0xffF97316),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_walletBalance < -50)
+                              Container(
+                                margin: const EdgeInsets.only(top: 18),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xff7F1D1D).withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color: const Color(0xffEF4444).withOpacity(0.4)),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.warning_amber_rounded,
+                                        size: 16, color: Color(0xffEF4444)),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'الرصيد أقل من الحد المسموح. يرجى الشحن لتلقي الرحلات.',
+                                        style: TextStyle(
+                                          color: Color(0xffFCA5A5),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _SummaryCard(
-                          label: 'رحلات اليوم',
-                          value: '$_todayTrips',
-                          icon: Icons.route,
-                          color: Colors.blue,
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Quick Stats Row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SummaryCard(
+                            label: 'أرباح اليوم',
+                            value: '${_todayEarnings.toStringAsFixed(2)} ج.م',
+                            icon: Icons.trending_up_rounded,
+                            color: const Color(0xffF97316),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: _SummaryCard(
+                            label: 'رحلات اليوم',
+                            value: '$_todayTrips رحلات',
+                            icon: Icons.route_rounded,
+                            color: const Color(0xff38BDF8),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+
+                    // Recharge Action Button
+                    Container(
+                      height: 52,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xffF97316), Color(0xffEA580C)],
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xffF97316).withOpacity(0.35),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: ElevatedButton.icon(
+                        onPressed: _recharge,
+                        icon: const Icon(Icons.add_card_rounded,
+                            color: Colors.white, size: 20),
+                        label: const Text(
+                          'طلب شحن المحفظة بإيصال',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton.icon(
-                    onPressed: _recharge,
-                    icon: const Icon(Icons.account_balance_wallet),
-                    label: const Text('طلب شحن بإيصال'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.all(16),
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      textStyle: const TextStyle(fontSize: 18),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -265,21 +392,50 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(height: 8),
-            Text(value,
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold, color: color)),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: Colors.grey.shade700)),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      decoration: BoxDecoration(
+        color: const Color(0xff121620),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xff1E293B)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xff94A3B8),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

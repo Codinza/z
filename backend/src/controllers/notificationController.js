@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import logger from '../utils/logger.js';
 const prisma = new PrismaClient();
 
 export const getNotifications = async (req, res) => {
@@ -16,7 +17,7 @@ export const getNotifications = async (req, res) => {
 
     res.json(notifications);
   } catch (error) {
-    console.error('Get Notifications Error:', error);
+    logger.error('Get notifications failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch notifications' });
   }
 };
@@ -30,7 +31,7 @@ export const markAsRead = async (req, res) => {
     });
     res.json(notification);
   } catch (error) {
-    console.error('Mark Notification Read Error:', error);
+    logger.error('Mark notification read failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to update notification' });
   }
 };
@@ -51,7 +52,7 @@ export const createNotification = async (req, res) => {
     
     res.status(201).json(notification);
   } catch (error) {
-    console.error('Create Notification Error:', error);
+    logger.error('Create notification failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to create notification' });
   }
 };

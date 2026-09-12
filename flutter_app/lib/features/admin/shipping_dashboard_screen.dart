@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import '../../features/auth/auth_service.dart';
 import '../../core/config/app_config.dart';
 import '../../core/services/notification_service.dart';
+import '../../app.dart';
 
 class ShippingDashboardScreen extends StatefulWidget {
   const ShippingDashboardScreen({super.key});
@@ -57,13 +58,46 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
     });
     _socket!.connect();
     _socket!.on('order_status_changed', (data) {
-      if (data is! Map || data['status'] != 'NEW_SHIPPING_ORDER') return;
+      if (data is! Map) return;
+      final status = data['status']?.toString();
+      final orderId = data['orderId']?.toString();
+      final price = data['price'] ?? data['offeredPrice'] ?? data['offerAmount'];
+
+      if (status == 'NEW_SHIPPING_ORDER') {
+        NotificationService().showNotification(
+          title: 'وصل طلب شحن جديد! 📦',
+          body: 'طلب شحن جديد بانتظار مراجعتك وتقديم عرض السعر',
+        );
+      } else if (status == 'CUSTOMER_APPROVED' || status == 'CONFIRMED') {
+        NotificationService().showNotification(
+          title: 'العميل وافق على عرضك للشحن! 🚚✅',
+          body: price != null
+              ? 'وافق العميل على عرض السعر بقيمة $price ج.م. يمكنك متابعة الشحنة الآن.'
+              : 'وافق العميل على عرض السعر. يمكنك بدء التوصيل.',
+        );
+      } else if (status == 'CUSTOMER_REJECTED') {
+        NotificationService().showNotification(
+          title: 'العميل رفض عرض السعر ✕',
+          body: 'تم رفض عرض السعر لطلب الشحن ${orderId ?? ''}',
+        );
+      } else if (status == 'IN_PROGRESS') {
+        NotificationService().showNotification(
+          title: 'الشحنة قيد التوصيل 📦💨',
+          body: 'تم تحديث حالة الشحنة إلى قيد التوصيل.',
+        );
+      } else if (status == 'COMPLETED') {
+        NotificationService().showNotification(
+          title: 'تم إكمال طلب الشحن بنجاح! 📦🎉',
+          body: 'تم تسليم الشحنة بنجاح وإنهاء الطلب.',
+        );
+      } else if (status == 'CANCELLED') {
+        NotificationService().showNotification(
+          title: 'تم إلغاء طلب الشحن ⚠️',
+          body: 'تم إلغاء طلب الشحن ${orderId ?? ''}',
+        );
+      }
+
       _fetchShippingData();
-      NotificationService().showNotification(
-        id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
-        title: 'طلب شحن جديد',
-        body: 'وصل طلب شحن جديد للمراجعة',
-      );
     });
   }
 
@@ -175,6 +209,23 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
           foregroundColor: Colors.white,
           actions: [
             IconButton(icon: const Icon(Icons.notifications_none), onPressed: _fetchShippingData),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _fetchShippingData,
+            ),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              tooltip: 'تسجيل الخروج',
+              onPressed: () async {
+                await AuthService.logout();
+                if (!context.mounted) return;
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AuthGate()),
+                  (route) => false,
+                );
+              },
+            ),
             const Padding(
               padding: EdgeInsetsDirectional.only(end: 12),
               child: CircleAvatar(
@@ -182,10 +233,6 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
                 backgroundColor: Color(0xffF59E0B),
                 child: Icon(Icons.business, color: Colors.white, size: 19),
               ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _fetchShippingData,
             ),
           ],
         ),
@@ -321,6 +368,210 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
     }
   }
 
+  Future<void> _adminSendOffer(String orderId, double price) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.post(
+        '/api/admin/orders/$orderId/offer',
+        data: {'offeredPrice': price},
+      );
+      if (response.statusCode == 200) {
+        _fetchShippingData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('تم إرسال عرض السعر ($price ج.م) بنجاح ✓'),
+              backgroundColor: const Color(0xff15803D),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      final message = e is DioException && e.response?.data is Map
+          ? (e.response?.data['error']?.toString() ?? 'فشل إرسال العرض')
+          : 'فشل إرسال العرض. حاول مرة أخرى';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: const Color(0xffB42318),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showOfferPriceDialog(Map<String, dynamic> order) {
+    final orderId = order['id']?.toString() ?? '';
+    final initialPrice = (order['customerOfferPrice'] as num?)?.toDouble() ?? 0.0;
+    final currentCompanyPrice = (order['companyOfferPrice'] as num?)?.toDouble();
+    final controller = TextEditingController(
+      text: (currentCompanyPrice ?? (initialPrice > 0 ? initialPrice : 100.0)).toStringAsFixed(0),
+    );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final currentVal = double.tryParse(controller.text) ?? 0.0;
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: Container(
+              padding: EdgeInsets.only(
+                top: 20,
+                left: 20,
+                right: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              decoration: const BoxDecoration(
+                color: Color(0xff111315),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xff2A2D33),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'تقديم عرض سعر للعميل',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xff1A1D21),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xff2A2D33)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'سعر العميل المقترح:',
+                          style: TextStyle(color: Color(0xff94A3B8), fontSize: 13),
+                        ),
+                        Text(
+                          '${initialPrice.toStringAsFixed(0)} ج.م',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'السعر المعروض من الشركة (ج.م):',
+                    style: TextStyle(color: Color(0xffF59E0B), fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: controller,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: const Color(0xff1A1D21),
+                      suffixText: 'ج.م',
+                      suffixStyle: const TextStyle(color: Color(0xffF59E0B), fontWeight: FontWeight.bold),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xff2A2D33)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xffF59E0B), width: 1.5),
+                      ),
+                    ),
+                    onChanged: (_) => setModalState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'زيادة سريعة على سعر العميل:',
+                    style: TextStyle(color: Color(0xff94A3B8), fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [20, 50, 100, 200].map((inc) {
+                      final targetPrice = initialPrice + inc;
+                      return ActionChip(
+                        label: Text('+$inc ج.م (${targetPrice.toStringAsFixed(0)})'),
+                        labelStyle: const TextStyle(color: Colors.white, fontSize: 12),
+                        backgroundColor: const Color(0xff1A1D21),
+                        side: const BorderSide(color: Color(0xff2A2D33)),
+                        onPressed: () {
+                          controller.text = targetPrice.toStringAsFixed(0);
+                          setModalState(() {});
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: currentVal <= 0
+                          ? null
+                          : () {
+                              Navigator.pop(context);
+                              _adminSendOffer(orderId, currentVal);
+                            },
+                      icon: const Icon(Icons.send_rounded, size: 18),
+                      label: Text(
+                        'إرسال العرض ($currentVal ج.م)',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xffD97706),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey.shade800,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _openMap(double? lat, double? lng) async {
     if (lat != null && lng != null) {
       final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
@@ -368,6 +619,10 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
         statusText: _getStatusText(order['status']?.toString() ?? 'NEW'),
         statusColor: _getStatusColor(order['status']?.toString() ?? 'NEW'),
         dateText: _orderDate(order),
+        onOfferPrice: () {
+          Navigator.pop(context);
+          _showOfferPriceDialog(order);
+        },
       ),
     );
   }
@@ -447,6 +702,65 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
                 ],
               ),
             ),
+            if (pickupLat != null && pickupLng != null && dropoffLat != null && dropoffLng != null) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 130,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: FlutterMap(
+                    options: MapOptions(
+                      initialCameraFit: CameraFit.bounds(
+                        bounds: LatLngBounds.fromPoints([
+                          LatLng(pickupLat, pickupLng),
+                          LatLng(dropoffLat, dropoffLng),
+                        ]),
+                        padding: const EdgeInsets.all(26.0),
+                      ),
+                      interactionOptions: const InteractionOptions(
+                        flags: InteractiveFlag.none,
+                      ),
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.zoon.admin',
+                        tileProvider: CancellableNetworkTileProvider(),
+                      ),
+                      PolylineLayer(
+                        polylines: [
+                          Polyline(
+                            points: [
+                              LatLng(pickupLat, pickupLng),
+                              LatLng(dropoffLat, dropoffLng),
+                            ],
+                            color: const Color(0xff16866b),
+                            strokeWidth: 4,
+                            pattern: StrokePattern.dashed(segments: const [10, 10]),
+                          ),
+                        ],
+                      ),
+                      MarkerLayer(
+                        markers: [
+                          Marker(
+                            point: LatLng(pickupLat, pickupLng),
+                            width: 30,
+                            height: 30,
+                            child: const Icon(Icons.location_on, color: Color(0xff15803D), size: 28),
+                          ),
+                          Marker(
+                            point: LatLng(dropoffLat, dropoffLng),
+                            width: 30,
+                            height: 30,
+                            child: const Icon(Icons.flag, color: Color(0xffB42318), size: 26),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -471,28 +785,59 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
                 _metaItem(Icons.schedule_outlined, _orderDate(order)),
               ],
             ),
-            if (status == 'NEW' || status == 'COMPANY_REVIEWING') ...[
+            if (status == 'NEW' || status == 'COMPANY_REVIEWING' || status == 'PRICE_SENT') ...[
               const Divider(height: 24),
+              if (status == 'PRICE_SENT')
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xffF59E0B).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xffF59E0B).withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time_rounded, size: 16, color: Color(0xffF59E0B)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'تم إرسال عرض (${order['companyOfferPrice']} ج.م) - بانتظار رد العميل',
+                          style: const TextStyle(fontSize: 12, color: Color(0xffD97706), fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Row(
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () => _adminAcceptOrder(orderId),
-                      icon: const Icon(Icons.check, size: 18),
+                      icon: const Icon(Icons.check, size: 16),
                       label: const Text('قبول'),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff15803D), foregroundColor: Colors.white),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff15803D), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 10)),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _showOfferPriceDialog(order),
+                      icon: const Icon(Icons.local_offer_outlined, size: 16),
+                      label: Text(status == 'PRICE_SENT' ? 'تعديل السعر' : 'عرض سعر'),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xffD97706), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 10)),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () => _adminRejectOrder(orderId),
-                      icon: const Icon(Icons.close, size: 18),
+                      icon: const Icon(Icons.close, size: 16),
                       label: const Text('رفض'),
-                      style: OutlinedButton.styleFrom(foregroundColor: const Color(0xffB42318), side: const BorderSide(color: Color(0xffB42318))),
+                      style: OutlinedButton.styleFrom(foregroundColor: const Color(0xffB42318), side: const BorderSide(color: Color(0xffB42318)), padding: const EdgeInsets.symmetric(vertical: 10)),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   IconButton(
                     tooltip: 'عرض التفاصيل',
                     onPressed: () => _showOrderDetails(order),
@@ -536,12 +881,24 @@ class _ShippingOrderDetails extends StatelessWidget {
   final String statusText;
   final Color statusColor;
   final String dateText;
+  final VoidCallback? onOfferPrice;
 
-  const _ShippingOrderDetails({required this.order, required this.pickup, required this.dropoff, required this.statusText, required this.statusColor, required this.dateText});
+  const _ShippingOrderDetails({
+    required this.order,
+    required this.pickup,
+    required this.dropoff,
+    required this.statusText,
+    required this.statusColor,
+    required this.dateText,
+    this.onOfferPrice,
+  });
 
   @override
   Widget build(BuildContext context) {
     final customer = order['customer'] as Map?;
+    final status = order['status']?.toString() ?? 'NEW';
+    final canOffer = status == 'NEW' || status == 'COMPANY_REVIEWING' || status == 'PRICE_SENT';
+
     return Container(
       height: MediaQuery.of(context).size.height * .88,
       decoration: const BoxDecoration(color: Color(0xffF7F9FC), borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
@@ -579,8 +936,30 @@ class _ShippingOrderDetails extends StatelessWidget {
                 _detailRow(Icons.my_location, 'الاستلام', order['shippingPickupAddress']?.toString() ?? 'غير محدد'),
                 _detailRow(Icons.flag_outlined, 'التسليم', order['shippingDropoffAddress']?.toString() ?? 'غير محدد'),
                 _detailRow(Icons.inventory_2_outlined, 'تفاصيل الشحنة', '${order['shippingType'] ?? ''} ${order['shippingSize'] ?? ''} ${order['shippingDetails'] ?? ''}'.trim()),
-                _detailRow(Icons.payments_outlined, 'قيمة التوصيل', '${order['customerOfferPrice'] ?? 0} ج.م'),
+                _detailRow(Icons.payments_outlined, 'قيمة التوصيل المقترحة', '${order['customerOfferPrice'] ?? 0} ج.م'),
+                if (order['companyOfferPrice'] != null)
+                  _detailRow(Icons.local_offer_outlined, 'عرض سعر الشركة', '${order['companyOfferPrice']} ج.م'),
                 _detailRow(Icons.schedule_outlined, 'تاريخ الطلب', dateText),
+                if (canOffer && onOfferPrice != null) ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: onOfferPrice,
+                      icon: const Icon(Icons.local_offer_rounded, size: 18),
+                      label: Text(
+                        status == 'PRICE_SENT' ? 'تعديل عرض السعر للعميل' : 'تقديم عرض سعر للعميل',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xffD97706),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

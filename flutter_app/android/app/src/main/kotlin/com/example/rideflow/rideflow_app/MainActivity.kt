@@ -1,4 +1,4 @@
-package com.zoon.rideflow
+package com.zoon.app
 
 import io.flutter.embedding.android.FlutterActivity
 

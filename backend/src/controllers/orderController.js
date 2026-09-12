@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { emitOrderStatusChanged } from '../services/tripService.js';
+import logger from '../utils/logger.js';
 const prisma = new PrismaClient();
 
 export const createLimousineOrder = async (req, res) => {
@@ -94,7 +95,7 @@ export const createLimousineOrder = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Create Limousine Order Error:', error);
+    logger.error('Create limousine order failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to create order' });
   }
 };
@@ -204,7 +205,7 @@ export const createShippingOrder = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Create Shipping Order Error:', error);
+    logger.error('Create shipping order failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to create order' });
   }
 };
@@ -239,7 +240,7 @@ export const getCustomerOrders = async (req, res) => {
 
     res.json({ orders });
   } catch (error) {
-    console.error('Get Customer Orders Error:', error);
+    logger.error('Get customer orders failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 };
@@ -303,7 +304,7 @@ export const getOrderDetails = async (req, res) => {
 
     res.json({ order: processedOrder });
   } catch (error) {
-    console.error('Get Order Details Error:', error);
+    logger.error('Get order details failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch order' });
   }
 };
@@ -368,7 +369,7 @@ export const approveCustomerPrice = async (req, res) => {
       order: updatedOrder,
     });
   } catch (error) {
-    console.error('Approve Customer Price Error:', error);
+    logger.error('Approve customer price failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to approve price' });
   }
 };
@@ -433,7 +434,7 @@ export const rejectCustomerPrice = async (req, res) => {
       order: updatedOrder,
     });
   } catch (error) {
-    console.error('Reject Customer Price Error:', error);
+    logger.error('Reject customer price failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to reject price' });
   }
 };
@@ -486,7 +487,7 @@ export const confirmOrder = async (req, res) => {
       order: updatedOrder,
     });
   } catch (error) {
-    console.error('Confirm Order Error:', error);
+    logger.error('Confirm order failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to confirm order' });
   }
 };
@@ -546,7 +547,7 @@ export const completeOrder = async (req, res) => {
       order: updatedOrder,
     });
   } catch (error) {
-    console.error('Complete Order Error:', error);
+    logger.error('Complete order failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to complete order' });
   }
 };
@@ -602,7 +603,7 @@ export const cancelOrder = async (req, res) => {
       order: updatedOrder,
     });
   } catch (error) {
-    console.error('Cancel Order Error:', error);
+    logger.error('Cancel order failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to cancel order' });
   }
 };

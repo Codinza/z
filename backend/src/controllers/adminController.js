@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { tripService, emitOrderStatusChanged } from '../services/tripService.js';
 import { getOnlineDriversCount, getOnlineDriversList } from '../sockets/socketServer.js';
+import logger from '../utils/logger.js';
 
 const prisma = new PrismaClient();
 
@@ -13,7 +14,7 @@ export const getTopUpRequests = async (req, res) => {
     });
     res.json({ requests });
   } catch (error) {
-    console.error('getTopUpRequests error:', error);
+    logger.error('Failed to fetch top-up requests', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch top-up requests' });
   }
 };
@@ -41,7 +42,7 @@ export const reviewTopUpRequest = async (req, res) => {
     });
     res.json({ request: result });
   } catch (error) {
-    console.error('reviewTopUpRequest error:', error);
+    logger.error('Failed to review top-up request', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to review top-up request' });
   }
 };
@@ -57,7 +58,7 @@ export const getPendingDrivers = async (req, res) => {
     });
     res.json({ drivers });
   } catch (error) {
-    console.error('getPendingDrivers error:', error);
+    logger.error('Failed to fetch pending drivers', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch pending drivers' });
   }
 };
@@ -72,7 +73,7 @@ export const approveDriver = async (req, res) => {
     });
     res.json({ message: 'Driver approved successfully', driver });
   } catch (error) {
-    console.error('approveDriver error:', error);
+    logger.error('Failed to approve driver', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to approve driver' });
   }
 };
@@ -87,7 +88,7 @@ export const rejectDriver = async (req, res) => {
     });
     res.json({ message: 'Driver rejected successfully', driver });
   } catch (error) {
-    console.error('rejectDriver error:', error);
+    logger.error('Failed to reject driver', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to reject driver' });
   }
 };
@@ -103,7 +104,7 @@ export const getPendingCompanies = async (req, res) => {
     });
     res.json({ companies });
   } catch (error) {
-    console.error('getPendingCompanies error:', error);
+    logger.error('Failed to fetch pending companies', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch pending companies' });
   }
 };
@@ -118,7 +119,7 @@ export const approveCompany = async (req, res) => {
     });
     res.json({ message: 'Company approved successfully', company });
   } catch (error) {
-    console.error('approveCompany error:', error);
+    logger.error('Failed to approve company', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to approve company' });
   }
 };
@@ -133,7 +134,7 @@ export const rejectCompany = async (req, res) => {
     });
     res.json({ message: 'Company rejected successfully', company });
   } catch (error) {
-    console.error('rejectCompany error:', error);
+    logger.error('Failed to reject company', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to reject company' });
   }
 };
@@ -159,7 +160,7 @@ export const getAllOrders = async (req, res) => {
 
     res.json({ orders });
   } catch (error) {
-    console.error('getAllOrders error:', error);
+    logger.error('Failed to fetch orders', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 };
@@ -180,7 +181,7 @@ export const getAllCustomers = async (req, res) => {
 
     res.json({ customers });
   } catch (error) {
-    console.error('getAllCustomers error:', error);
+    logger.error('Failed to fetch customers', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch customers' });
   }
 };
@@ -197,7 +198,7 @@ export const getAllCompanies = async (req, res) => {
 
     res.json({ companies });
   } catch (error) {
-    console.error('getAllCompanies error:', error);
+    logger.error('Failed to fetch companies', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch companies' });
   }
 };
@@ -223,7 +224,7 @@ export const getAdminStats = async (req, res) => {
         registeredCompanies: companiesCount,
       };
     } catch (e) {
-      console.warn('DB stats unavailable:', e.message);
+      logger.warn('DB stats unavailable', { error: e.message });
     }
 
     // Order stats
@@ -275,7 +276,7 @@ export const getAdminStats = async (req, res) => {
       ...tripStats,
     });
   } catch (error) {
-    console.error('getAdminStats error:', error);
+    logger.error('Failed to fetch admin stats', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch stats' });
   }
 };
@@ -315,7 +316,7 @@ export const adminAcceptOrder = async (req, res) => {
 
     res.json({ message: 'Order accepted', order: updatedOrder });
   } catch (error) {
-    console.error('adminAcceptOrder error:', error);
+    logger.error('Failed to accept order', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to accept order' });
   }
 };
@@ -347,7 +348,7 @@ export const adminRejectOrder = async (req, res) => {
 
     res.json({ message: 'Order rejected', order: updatedOrder });
   } catch (error) {
-    console.error('adminRejectOrder error:', error);
+    logger.error('Failed to reject order', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to reject order' });
   }
 };
@@ -429,7 +430,7 @@ export const adminSendCounterOffer = async (req, res) => {
 
     res.json({ message: 'Counter offer sent', priceOffer, order: updatedOrder });
   } catch (error) {
-    console.error('adminSendCounterOffer error:', error);
+    logger.error('Failed to send counter offer', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to send counter offer' });
   }
 };

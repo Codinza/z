@@ -26,27 +26,82 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
+        backgroundColor: const Color(0xff0B0E14),
         body: _screens[_currentIndex],
         bottomNavigationBar: SafeArea(
           minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xff172B3A),
+              color: const Color(0xff121620),
               borderRadius: BorderRadius.circular(24),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(.18), blurRadius: 18, offset: const Offset(0, 8))],
-            ),
-            child: NavigationBar(
-              height: 70,
-              backgroundColor: Colors.transparent,
-              indicatorColor: const Color(0xffD6A84F),
-              selectedIndex: _currentIndex,
-              onDestinationSelected: (index) => setState(() => _currentIndex = index),
-              destinations: const [
-                NavigationDestination(icon: Icon(Icons.inbox_outlined), selectedIcon: Icon(Icons.inbox, color: Color(0xff172B3A)), label: 'الطلبات'),
-                NavigationDestination(icon: Icon(Icons.history), label: 'الأرشيف'),
-                NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), label: 'الأرباح'),
-                NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'الإعدادات'),
+              border: Border.all(
+                color: const Color(0xff1E293B),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.4),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+                BoxShadow(
+                  color: const Color(0xffF97316).withOpacity(0.06),
+                  blurRadius: 15,
+                  spreadRadius: -2,
+                ),
               ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: NavigationBarTheme(
+                data: NavigationBarThemeData(
+                  labelTextStyle: WidgetStateProperty.resolveWith<TextStyle>(
+                    (Set<WidgetState> states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xffF97316),
+                        );
+                      }
+                      return const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xff94A3B8),
+                      );
+                    },
+                  ),
+                ),
+                child: NavigationBar(
+                  height: 68,
+                  backgroundColor: Colors.transparent,
+                  indicatorColor: const Color(0xffF97316).withOpacity(0.18),
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: (index) => setState(() => _currentIndex = index),
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.radar_outlined, color: Color(0xff94A3B8)),
+                      selectedIcon: Icon(Icons.radar_rounded, color: Color(0xffF97316)),
+                      label: 'الطلبات',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.history_rounded, color: Color(0xff94A3B8)),
+                      selectedIcon: Icon(Icons.history_rounded, color: Color(0xffF97316)),
+                      label: 'الأرشيف',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.account_balance_wallet_outlined, color: Color(0xff94A3B8)),
+                      selectedIcon: Icon(Icons.account_balance_wallet_rounded, color: Color(0xffF97316)),
+                      label: 'الأرباح',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.settings_outlined, color: Color(0xff94A3B8)),
+                      selectedIcon: Icon(Icons.settings_rounded, color: Color(0xffF97316)),
+                      label: 'الإعدادات',
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

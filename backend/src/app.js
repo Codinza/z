@@ -19,6 +19,8 @@ import { mapsRoutes } from './routes/mapsRoutes.js';
 import { customerRoutes } from './routes/customerRoutes.js';
 import { setSocketIO } from './services/tripService.js';
 import { authMiddleware } from './middlewares/authMiddleware.js';
+import { generalLimiter, authLimiter, sensitiveLimiter } from './middlewares/rateLimiter.js';
+import logger from './utils/logger.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -31,7 +33,18 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use((req, res, next) => { console.log('[REQ] ' + req.method + ' ' + req.url, req.body); next(); });
+
+// Apply general rate limiting to all routes
+app.use(generalLimiter);
+
+app.use((req, res, next) => { 
+  logger.info('Incoming request', { 
+    method: req.method, 
+    url: req.url, 
+    body: req.body 
+  }); 
+  next(); 
+});
 
 app.get('/privacy-policy', (_, res) => {
   res.type('html').send(`<!doctype html>
@@ -75,7 +88,7 @@ app.get('/api/health', async (_, res) => {
     dbStatus = 'connected';
   } catch (err) {
     dbStatus = 'disconnected';
-    console.error('[Health] Database check failed:', err.message);
+    logger.error('Database health check failed', { error: err.message });
   }
 
   res.json({
@@ -87,21 +100,21 @@ app.get('/api/health', async (_, res) => {
 });
 
 // Public routes (no authentication required)
-app.use('/api/auth', authRoutes());
+app.use('/api/auth', authLimiter, authRoutes());
 app.use('/api/settings', settingsRoutes());
 
 // Company routes (public for registration, protected for operations)
 app.use('/api/company', companyRoutes());
 
 // Order routes (limousine & shipping)
-app.use('/api/orders', orderRoutes());
+app.use('/api/orders', sensitiveLimiter, orderRoutes());
 app.use('/api/maps', mapsRoutes());
 
 // Protected routes (authentication required)
 app.use('/api/trips', authMiddleware, tripRoutes());
 app.use('/api/drivers', authMiddleware, driverRoutes());
 app.use('/api/locations', authMiddleware, locationRoutes());
-app.use('/api/payments', authMiddleware, paymentRoutes());
+app.use('/api/payments', authMiddleware, sensitiveLimiter, paymentRoutes());
 app.use('/api/notifications', authMiddleware, notificationRoutes());
 app.use('/api/admin', authMiddleware, adminRoutes());
 app.use('/api/customers', authMiddleware, customerRoutes());
@@ -112,6 +125,9 @@ setSocketIO(io);
 initSocketServer(io);
 
 httpServer.listen(env.port, '0.0.0.0', () => {
-  console.log(`RideFlow backend running on port ${env.port} and listening on all interfaces`);
-  console.log(`Health check: http://localhost:${env.port}/api/health`);
+  logger.info('RideFlow backend started', { 
+    port: env.port, 
+    host: '0.0.0.0',
+    healthCheck: `http://localhost:${env.port}/api/health`
+  });
 });

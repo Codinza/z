@@ -340,7 +340,7 @@ class _WaitingForOffersScreenState extends State<WaitingForOffersScreen> {
               children: [
                 TileLayer(
                   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.zoon.rideflow',
+                  userAgentPackageName: 'com.zoon.app',
                   tileProvider: CancellableNetworkTileProvider(),
                 ),
                 MarkerLayer(

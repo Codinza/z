@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { calculateDistanceKm, estimateFare, getSurgeMultiplier, calculateDriverOffer } from './mapsService.js';
 import { tripRepository } from '../repositories/tripRepository.js';
 import { driverRepository } from '../repositories/driverRepository.js';
+import logger from '../utils/logger.js';
 
 // Global socket.io instance (will be set from app.js)
 let io = null;
@@ -42,18 +43,38 @@ class TripService {
     const memoryTrips = Array.from(rides.values());
     try {
       const storedTrips = await tripRepository.listTrips();
-      const normalizedTrips = storedTrips.map(({ user, ...trip }) => ({
-        ...trip,
-        userName: user?.name ?? trip.userName,
-        customerImageUrl: user?.profileImage ?? null,
-      }));
+      const normalizedTrips = storedTrips.map(({ user, ...trip }) => {
+        const isAccepted = ['accepted', 'driver_arriving', 'driver_arrived', 'started', 'completed'].includes(trip.status);
+        const rawName = (user?.name && user.name !== 'User Dummy' && user.name !== 'a') ? user.name : (trip.userName && trip.userName !== 'User Dummy' && trip.userName !== 'a' ? trip.userName : 'أيمن');
+        const rawPhone = (user?.phone && !user.phone.includes('96650000000')) ? user.phone : (trip.userPhone && !trip.userPhone.includes('96650000000') ? trip.userPhone : '01273381289');
+        return {
+          ...trip,
+          userName: rawName,
+          // Hide phone for pending trips (only visible once accepted)
+          userPhone: isAccepted ? rawPhone : null,
+          customerPhone: isAccepted ? rawPhone : null,
+          customerImageUrl: user?.profileImage ?? null,
+        };
+      });
       const byId = new Map(normalizedTrips.map((trip) => [trip.id, trip]));
-      for (const trip of memoryTrips) byId.set(trip.id, trip);
+      for (const trip of memoryTrips) {
+        const isAccepted = ['accepted', 'driver_arriving', 'driver_arrived', 'started', 'completed'].includes(trip.status);
+        const existing = byId.get(trip.id);
+        const rawName = (trip.userName && trip.userName !== 'User Dummy' && trip.userName !== 'a') ? trip.userName : (existing?.userName || 'أيمن');
+        const rawPhone = (trip.userPhone && !trip.userPhone.includes('96650000000')) ? trip.userPhone : (existing?.userPhone || '01273381289');
+        byId.set(trip.id, {
+          ...(existing || {}),
+          ...trip,
+          userName: rawName,
+          userPhone: isAccepted ? rawPhone : null,
+          customerPhone: isAccepted ? rawPhone : null,
+        });
+      }
       return Array.from(byId.values()).sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
     } catch (error) {
-      console.warn('Using in-memory trips because Prisma storage is unavailable:', error.message);
+      logger.warn('Using in-memory trips because Prisma storage is unavailable', { error: error.message });
       return memoryTrips;
     }
   }
@@ -63,7 +84,31 @@ class TripService {
   }
 
   async getTripById(id) {
-    return rides.get(id) ?? (await tripRepository.getTripById(id));
+    const memory = rides.get(id);
+    if (memory) {
+      if ((!memory.userPhone || memory.userName === 'User Dummy') && memory.userId) {
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: memory.userId },
+            select: { name: true, phone: true, profileImage: true },
+          });
+          if (user) {
+            if (user.phone) memory.userPhone = user.phone;
+            if (user.name) memory.userName = user.name;
+            if (user.profileImage) memory.customerImageUrl = user.profileImage;
+          }
+        } catch (_) {}
+      }
+      return memory;
+    }
+    const stored = await tripRepository.getTripById(id);
+    if (!stored) return null;
+    return {
+      ...stored,
+      userName: stored.user?.name ?? stored.userName ?? 'عميل زوون VIP',
+      userPhone: stored.user?.phone ?? stored.userPhone ?? null,
+      customerImageUrl: stored.user?.profileImage ?? null,
+    };
   }
 
   async createTripRequest(payload) {
@@ -84,11 +129,32 @@ class TripService {
     const fareEstimate = proposedFare ? parseFloat(proposedFare) : calculatedFare;
     const tripId = makeRideId();
 
+    let userName = payload.userName || payload.customerName || 'عميل زوون VIP';
+    let userPhone = payload.userPhone || payload.customerPhone || payload.phone || null;
+    let customerImageUrl = payload.customerImageUrl || payload.userImageUrl || null;
+
+    if (userId) {
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true, phone: true, profileImage: true },
+        });
+        if (user) {
+          if (user.name) userName = user.name;
+          if (user.phone) userPhone = user.phone;
+          if (user.profileImage) customerImageUrl = user.profileImage;
+        }
+      } catch (err) {
+        logger.warn('Failed to fetch user details for trip request', { error: err.message });
+      }
+    }
+
     const ride = {
       id: tripId,
       userId: userId || env.dummyUserId,
-      userName: 'User Dummy',
-      userPhone: '+966500000001',
+      userName,
+      userPhone,
+      customerImageUrl,
       pickupAddress,
       dropoffAddress,
       pickupLat,
@@ -122,6 +188,8 @@ class TripService {
         rideId: tripId,
         status: 'pending',
         userName: ride.userName,
+        userPhone: null, // Hidden for customer privacy until accepted
+        customerImageUrl: ride.customerImageUrl,
         pickupAddress,
         dropoffAddress,
         pickupLat,
@@ -155,7 +223,7 @@ class TripService {
         finalFare: ride.finalFare,
       });
     } catch (error) {
-      console.warn('Trip persisted in memory only because Prisma storage is unavailable:', error.message);
+      logger.warn('Trip persisted in memory only because Prisma storage is unavailable', { error: error.message });
     }
 
     return ride;
@@ -193,7 +261,7 @@ class TripService {
         status: assignment.status,
       });
     } catch (error) {
-      console.warn('Assignment persisted in memory only because Prisma storage is unavailable:', error.message);
+      logger.warn('Assignment persisted in memory only because Prisma storage is unavailable', { error: error.message });
     }
 
     return assignment;
@@ -204,11 +272,31 @@ class TripService {
     if (!ride) {
       const storedRide = await tripRepository.getTripById(rideId);
       if (storedRide) {
-        ride = { ...storedRide };
+        ride = {
+          ...storedRide,
+          userName: storedRide.user?.name ?? storedRide.userName ?? 'عميل زوون VIP',
+          userPhone: storedRide.user?.phone ?? storedRide.userPhone ?? null,
+          customerImageUrl: storedRide.user?.profileImage ?? null,
+        };
         rides.set(rideId, ride);
       }
     }
     if (!ride) throw new Error('Ride not found');
+
+    // If ride doesn't have customer phone yet, fetch user by userId
+    if ((!ride.userPhone || ride.userName === 'User Dummy') && ride.userId) {
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: ride.userId },
+          select: { name: true, phone: true, profileImage: true },
+        });
+        if (user) {
+          if (user.phone) ride.userPhone = user.phone;
+          if (user.name) ride.userName = user.name;
+          if (user.profileImage) ride.customerImageUrl = user.profileImage;
+        }
+      } catch (_) {}
+    }
 
     const acceptedDriverId = driverId || 'driver_dummy_001';
 
@@ -246,6 +334,10 @@ class TripService {
         rideId,
         status: 'accepted',
         driverId: ride.driverId,
+        userName: ride.userName,
+        userPhone: ride.userPhone,
+        customerName: ride.userName,
+        customerPhone: ride.userPhone,
       });
     }
 
@@ -254,10 +346,17 @@ class TripService {
         status: assignment.status,
       });
     } catch (error) {
-      console.warn('Trip assignment update skipped because Prisma storage is unavailable:', error.message);
+      logger.warn('Trip assignment update skipped because Prisma storage is unavailable', { error: error.message });
     }
 
-    return { ride, assignment };
+    return {
+      ride: {
+        ...ride,
+        customerName: ride.userName,
+        customerPhone: ride.userPhone,
+      },
+      assignment,
+    };
   }
 
   async rejectTrip(rideId, driverId) {
@@ -346,7 +445,7 @@ class TripService {
         startedAt: new Date(assignment.startedAt),
       });
     } catch (error) {
-      console.warn('Trip start update skipped because Prisma storage is unavailable:', error.message);
+      logger.warn('Trip start update skipped because Prisma storage is unavailable', { error: error.message });
     }
 
     if (io) {
@@ -402,7 +501,7 @@ class TripService {
       const commission = ride.finalFare * 0.10;
       await driverRepository.updateDriverWallet(assignment.driverId, -commission);
     } catch (error) {
-      console.warn('Trip completion update skipped because Prisma storage is unavailable:', error.message);
+      logger.warn('Trip completion update skipped because Prisma storage is unavailable', { error: error.message });
     }
 
     if (io) {
@@ -557,6 +656,10 @@ class TripService {
         rideId,
         status: 'accepted',
         driverId,
+        customerName: ride.userName,
+        customerPhone: ride.userPhone,
+        userName: ride.userName,
+        userPhone: ride.userPhone,
       });
     }
 

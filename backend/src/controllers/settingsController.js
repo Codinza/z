@@ -1,3 +1,5 @@
+import logger from '../utils/logger.js';
+
 export const getPageContent = (req, res) => {
   const { pageId } = req.params;
 
@@ -36,7 +38,7 @@ export const submitContactMessage = (req, res) => {
   }
   
   // In a real app, save to DB or send email
-  console.log(`New Contact Message from ${name} (${email}): ${message}`);
+  logger.info('New contact message received', { name, email, message });
   
   res.status(201).json({ success: true, message: 'تم إرسال رسالتك بنجاح' });
 };

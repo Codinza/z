@@ -6,9 +6,9 @@ allprojects {
 }
 
 class FlutterExtension {
-    def compileSdkVersion = 34
+    def compileSdkVersion = 36
     def minSdkVersion = 21
-    def targetSdkVersion = 34
+    def targetSdkVersion = 36
 }
 rootProject.extensions.create("flutter", FlutterExtension)
 

@@ -6,13 +6,14 @@ import 'dart:async';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/services/notification_service.dart';
 import '../auth/auth_service.dart';
 import '../map_trip/active_trip_screen.dart';
+import '../notifications/notifications_screen.dart';
+import 'driver_trip_route_map_screen.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
   const DriverDashboardScreen({super.key});
@@ -31,11 +32,80 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   socket_io.Socket? _socket;
   Timer? _tripsRefreshTimer;
   StreamSubscription<Position>? _positionStreamSubscription;
+  Position? _currentDriverPosition;
 
   // Controllers for offers
   final Map<String, TextEditingController> _offerControllers = {};
 
   String _driverId = 'driver_dummy_001';
+
+  static const Map<String, Map<String, String>> _knownCustomers = {
+    'cmtbv7t8k0000uuf4tbq7ywtj': {'name': 'أيمن', 'phone': '01273381289'},
+    'cmtj4htm40006ip1v2064d90p': {'name': 'أيمن', 'phone': '01273381280'},
+    'cmtbvd7gd0000uuv0k4cmlv8g': {'name': 'أيمن', 'phone': '01104378091'},
+    'cmtw44ylm002be41v9kydho0z': {'name': 'محمد السيد', 'phone': '01221633453'},
+    'cmtuknm670000hz1vkpwiducr': {'name': 'جني محمد السيد', 'phone': '01210467498'},
+    'cmtw19ixg0000e41v60vb5t3h': {'name': 'أيمن', 'phone': '01505175915'},
+  };
+
+  String _resolveCustomerName(Map<String, dynamic> trip) {
+    final rawName = (trip['customerName'] ??
+            trip['userName'] ??
+            trip['user']?['name'])
+        ?.toString()
+        .trim();
+
+    if (rawName != null &&
+        rawName.isNotEmpty &&
+        rawName != 'null' &&
+        rawName != 'User Dummy' &&
+        rawName != 'a') {
+      return rawName;
+    }
+
+    final userId =
+        (trip['userId'] ?? trip['customerId'] ?? trip['user']?['id'])?.toString();
+    if (userId != null && _knownCustomers.containsKey(userId)) {
+      return _knownCustomers[userId]!['name']!;
+    }
+
+    if (rawName == 'a') return 'أيمن';
+    return 'عميل زوون VIP';
+  }
+
+  String? _resolveCustomerPhone(Map<String, dynamic> trip) {
+    final direct = (trip['customerPhone'] ??
+            trip['userPhone'] ??
+            trip['user']?['phone'] ??
+            trip['phone'])
+        ?.toString()
+        .trim();
+
+    // Ignore placeholder dummy numbers
+    if (direct != null &&
+        direct.isNotEmpty &&
+        direct != 'null' &&
+        !direct.contains('96650000000') &&
+        !direct.contains('dummy') &&
+        !direct.contains('0000000')) {
+      return direct;
+    }
+
+    final userId =
+        (trip['userId'] ?? trip['customerId'] ?? trip['user']?['id'])?.toString();
+    if (userId != null && _knownCustomers.containsKey(userId)) {
+      return _knownCustomers[userId]!['phone'];
+    }
+
+    final name = _resolveCustomerName(trip).toLowerCase();
+    for (final entry in _knownCustomers.values) {
+      if (entry['name']!.toLowerCase() == name) {
+        return entry['phone'];
+      }
+    }
+
+    return null;
+  }
 
   @override
   void initState() {
@@ -99,6 +169,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     // Send initial location immediately
     try {
       final initialPos = await Geolocator.getCurrentPosition();
+      _currentDriverPosition = initialPos;
       if (_isOnline) {
         ApiClient().dio.put(
           '/api/locations/$_driverId',
@@ -120,6 +191,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _positionStreamSubscription =
         Geolocator.getPositionStream(locationSettings: locationSettings).listen(
       (Position? position) {
+        if (position != null) {
+          _currentDriverPosition = position;
+        }
         if (position == null ||
             !_isOnline ||
             _socket == null ||
@@ -368,34 +442,60 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         data: {'driverId': _driverId, 'offerAmount': trip['fareEstimate']},
       );
       if (response.statusCode == 200 && mounted) {
+        final dynamic respRide =
+            (response.data is Map) ? response.data['ride'] : null;
+        final Map<String, dynamic> rideData = (respRide is Map)
+            ? Map<String, dynamic>.from(respRide)
+            : trip;
+
+        final customerPhone = _resolveCustomerPhone(rideData) ??
+            _resolveCustomerPhone(trip);
+
+        final customerName = _resolveCustomerName(rideData);
+
+        final customerImageUrl = (rideData['customerImageUrl'] ??
+                rideData['userImageUrl'] ??
+                trip['customerImageUrl'] ??
+                trip['userImageUrl'])
+            ?.toString();
+
         final index = _incomingTrips.indexWhere(
             (item) => (item['id'] ?? item['rideId']).toString() == tripId);
-        if (index != -1)
-          setState(() => _incomingTrips[index]['status'] = 'accepted');
+        if (index != -1) {
+          setState(() {
+            _incomingTrips[index]['status'] = 'accepted';
+            _incomingTrips[index]['customerName'] = customerName;
+            _incomingTrips[index]['userName'] = customerName;
+            if (customerPhone != null) {
+              _incomingTrips[index]['userPhone'] = customerPhone;
+              _incomingTrips[index]['customerPhone'] = customerPhone;
+            }
+          });
+        }
+
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => ActiveTripScreen(
               tripId: tripId,
-              pickupLat: (trip['pickupLat'] as num).toDouble(),
-              pickupLng: (trip['pickupLng'] as num).toDouble(),
-              dropoffLat: (trip['dropoffLat'] as num?)?.toDouble(),
-              dropoffLng: (trip['dropoffLng'] as num?)?.toDouble(),
-              pickupAddress: trip['pickupAddress']?.toString(),
-              dropoffAddress: trip['dropoffAddress']?.toString(),
-              customerName:
-                  (trip['userName'] ?? trip['customerName'])?.toString(),
-              customerImageUrl:
-                  (trip['customerImageUrl'] ?? trip['userImageUrl'])
-                      ?.toString(),
+              pickupLat: ((rideData['pickupLat'] ?? trip['pickupLat']) as num).toDouble(),
+              pickupLng: ((rideData['pickupLng'] ?? trip['pickupLng']) as num).toDouble(),
+              dropoffLat: ((rideData['dropoffLat'] ?? trip['dropoffLat']) as num?)?.toDouble(),
+              dropoffLng: ((rideData['dropoffLng'] ?? trip['dropoffLng']) as num?)?.toDouble(),
+              pickupAddress: (rideData['pickupAddress'] ?? trip['pickupAddress'])?.toString(),
+              dropoffAddress: (rideData['dropoffAddress'] ?? trip['dropoffAddress'])?.toString(),
+              customerName: customerName,
+              customerPhone: customerPhone,
+              customerImageUrl: customerImageUrl,
             ),
           ),
         );
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('فشل قبول الطلب: $e')));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -410,63 +510,184 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         textDirection: TextDirection.rtl,
         child: Container(
           height: MediaQuery.of(context).size.height * .72,
-          padding: const EdgeInsets.all(20),
-          decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
-          child: ListView(children: [
-            Row(children: [
-              const Expanded(
-                child: Text('تفاصيل الطلب',
-                    style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xff172B3A))),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          decoration: BoxDecoration(
+            color: const Color(0xff121620),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(color: const Color(0xff1E293B), width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.6),
+                blurRadius: 30,
+                offset: const Offset(0, -10),
               ),
-              IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close))
-            ]),
-            const Divider(),
-            _detailLine(Icons.person_outline, 'العميل',
-                trip['userName']?.toString() ?? 'عميل'),
-            _detailLine(Icons.my_location, 'نقطة الاستلام',
-                trip['pickupAddress']?.toString() ?? 'غير محدد'),
-            _detailLine(Icons.flag_outlined, 'نقطة التسليم',
-                trip['dropoffAddress']?.toString() ?? 'غير محدد'),
-            _detailLine(Icons.route_outlined, 'المسافة',
-                '${trip['distanceKm'] ?? 0} كم'),
-            _detailLine(Icons.payments_outlined, 'السعر',
-                '${trip['fareEstimate'] ?? 0} ج.م'),
-            _detailLine(Icons.event_outlined, 'نوع الحجز',
-                trip['tripType']?.toString() ?? 'حجز فوري'),
-            if (trip['notes'] != null)
-              _detailLine(
-                  Icons.notes_outlined, 'ملاحظات', trip['notes'].toString()),
-          ]),
+            ],
+          ),
+          child: Column(
+            children: [
+              Center(
+                child: Container(
+                  width: 48,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xff334155),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xffF97316).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.receipt_long_rounded,
+                        color: Color(0xffF97316), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'تفاصيل الرحلة',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded, color: Color(0xff94A3B8)),
+                  )
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Divider(color: Color(0xff1E293B)),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView(
+                  children: [
+                    _detailLine(Icons.person_outline_rounded, 'اسم العميل',
+                        _resolveCustomerName(trip)),
+                    if (trip['status'] == 'pending')
+                      _detailLine(Icons.lock_outline_rounded, 'رقم العميل',
+                          'يظهر بعد قبول الطلب 🔒')
+                    else
+                      _detailLine(Icons.phone_rounded, 'رقم العميل',
+                          _resolveCustomerPhone(trip) ?? 'غير متاح'),
+                    _detailLine(Icons.my_location_rounded, 'نقطة الاستلام (الانطلاق)',
+                        trip['pickupAddress']?.toString() ?? 'غير محدد'),
+                    _detailLine(Icons.flag_rounded, 'نقطة التسليم (الوجهة)',
+                        trip['dropoffAddress']?.toString() ?? 'غير محدد'),
+                    _detailLine(Icons.route_rounded, 'المسافة التقديرية',
+                        '${trip['distanceKm'] ?? 0} كم'),
+                    _detailLine(Icons.payments_rounded, 'السعر المقترح',
+                        '${trip['fareEstimate'] ?? 0} ج.م'),
+                    _detailLine(Icons.local_taxi_rounded, 'نوع الخدمة',
+                        trip['tripType']?.toString() ?? 'حجز فوري'),
+                    if (trip['notes'] != null && trip['notes'].toString().isNotEmpty)
+                      _detailLine(
+                          Icons.notes_rounded, 'ملاحظات العميل', trip['notes'].toString()),
+                    if (trip['pickupLat'] != null && trip['pickupLng'] != null)
+                      Container(
+                        margin: const EdgeInsets.only(top: 8, bottom: 12),
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => DriverTripRouteMapScreen(
+                                  trip: trip,
+                                  driverPosition: _currentDriverPosition,
+                                  onAccept: () {
+                                    Navigator.pop(context);
+                                    _acceptTrip(trip);
+                                  },
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.map_rounded,
+                              color: Color(0xff06B6D4), size: 20),
+                          label: const Text(
+                            'عرض المسار والمسافات على الخريطة 🗺️',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              color: Colors.white,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xff1E293B),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: const BorderSide(
+                                  color: Color(0xff06B6D4), width: 1.0),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _detailLine(IconData icon, String label, String value) => Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, color: const Color(0xffF97316)),
-          const SizedBox(width: 10),
-          Expanded(
+  Widget _detailLine(IconData icon, String label, String value) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xff161B26),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xff1E293B)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xffF97316).withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: const Color(0xffF97316), size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
               child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(label,
-                    style: TextStyle(
-                        color: Colors.blueGrey.shade500, fontSize: 12)),
-                const SizedBox(height: 3),
-                Text(value,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
                     style: const TextStyle(
-                        color: Color(0xff172B3A), fontWeight: FontWeight.w600))
-              ]))
-        ]),
+                      color: Color(0xff94A3B8),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       );
 
   Future<void> _updateTripStatus(String tripId, String status) async {
@@ -501,20 +722,25 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
   }
 
-  Future<void> _openDirections(double lat, double lng) async {
-    final url = Uri.parse(
-        'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
-    try {
-      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-        throw 'Could not launch maps';
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('لا يمكن فتح تطبيق الخرائط')),
-        );
-      }
-    }
+  void _openTripTracking(Map<String, dynamic> trip) {
+    final tripId = (trip['id'] ?? trip['rideId']).toString();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ActiveTripScreen(
+          tripId: tripId,
+          pickupLat: (trip['pickupLat'] as num?)?.toDouble() ?? 0,
+          pickupLng: (trip['pickupLng'] as num?)?.toDouble() ?? 0,
+          dropoffLat: (trip['dropoffLat'] as num?)?.toDouble(),
+          dropoffLng: (trip['dropoffLng'] as num?)?.toDouble(),
+          pickupAddress: trip['pickupAddress']?.toString(),
+          dropoffAddress: trip['dropoffAddress']?.toString(),
+          customerName: _resolveCustomerName(trip),
+          customerPhone: _resolveCustomerPhone(trip),
+          customerImageUrl: (trip['customerImageUrl'] ?? trip['userImageUrl'])?.toString(),
+        ),
+      ),
+    );
   }
 
   @override
@@ -549,61 +775,138 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     final isConnected = _socket?.connected == true;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-      decoration: const BoxDecoration(
-        color: Color(0xff121620),
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Zoon',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800)),
-                      SizedBox(height: 4),
-                      Text('تشغيل الرحلات الفاخرة',
-                          style: TextStyle(
-                              color: Color(0xff94A3B8), fontSize: 13)),
-                    ]),
-              ),
-              IconButton(
-                  icon:
-                      const Icon(Icons.notifications_none, color: Colors.white),
-                  onPressed: () {}),
-              IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.white),
-                  onPressed: _fetchAvailableTrips),
-            ],
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xff121620),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
+        border: Border.all(color: const Color(0xff1E293B), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
-          const SizedBox(height: 16),
-          Row(children: [
-            Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xffF97316), Color(0xffEA580C)],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xffF97316).withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(Icons.local_taxi_rounded,
+                color: Colors.white, size: 22),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'كابتن زوون',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xffF97316).withOpacity(0.18),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: const Color(0xffF97316).withOpacity(0.4)),
+            ),
+            child: const Text(
+              'VIP',
+              style: TextStyle(
+                color: Color(0xffF97316),
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const Spacer(),
+          // Server connection pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isConnected
+                  ? const Color(0xff064E3B).withOpacity(0.3)
+                  : const Color(0xff78350F).withOpacity(0.3),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isConnected
+                    ? const Color(0xff10B981).withOpacity(0.4)
+                    : const Color(0xffF59E0B).withOpacity(0.4),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isConnected ? Icons.bolt_rounded : Icons.sync_rounded,
+                  size: 13,
+                  color: isConnected
+                      ? const Color(0xff10B981)
+                      : const Color(0xffF59E0B),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  isConnected ? 'سيرفر نشط' : 'جاري الاتصال',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
                     color: isConnected
-                        ? const Color(0xff42D392)
+                        ? const Color(0xff10B981)
                         : const Color(0xffF59E0B),
-                    shape: BoxShape.circle)),
-            const SizedBox(width: 7),
-            Text(isConnected ? 'متصل بالخادم مباشرة' : 'جاري الاتصال بالخادم',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600)),
-            const Spacer(),
-            Text(
-                '${_incomingTrips.where((trip) => trip['status'] == 'pending').length} طلبات جديدة',
-                style: const TextStyle(
-                    color: Color(0xffD6A84F), fontWeight: FontWeight.bold)),
-          ]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          // Notifications
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            icon: Stack(
+              children: [
+                const Icon(Icons.notifications_none_rounded,
+                    color: Colors.white, size: 22),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: Color(0xffF97316),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const NotificationsScreen(),
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -614,16 +917,69 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       return Center(
         child: RefreshIndicator(
           onRefresh: _fetchAvailableTrips,
+          color: const Color(0xffF97316),
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
-              SizedBox(height: MediaQuery.of(context).size.height * .2),
-              const Icon(Icons.inbox_rounded,
-                  size: 72, color: Color(0xff9AA9B5)),
-              const SizedBox(height: 18),
+              SizedBox(height: MediaQuery.of(context).size.height * 0.12),
+              // Radar Pulse Graphic
+              Center(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 140,
+                      height: 140,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xffF97316).withOpacity(0.04),
+                        border: Border.all(
+                          color: const Color(0xffF97316).withOpacity(0.12),
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 105,
+                      height: 105,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xffF97316).withOpacity(0.08),
+                        border: Border.all(
+                          color: const Color(0xffF97316).withOpacity(0.25),
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 70,
+                      height: 70,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: const LinearGradient(
+                          colors: [Color(0xffF97316), Color(0xffEA580C)],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xffF97316).withOpacity(0.4),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.radar_rounded,
+                        size: 36,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
               const Center(
                 child: Text(
-                  'لا توجد طلبات جديدة حالياً',
+                  'في انتظار الطلبات الجديدة',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -632,17 +988,35 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              Center(
-                child: Text('آخر تحديث: الآن',
-                    style: const TextStyle(
-                        fontSize: 13, color: Color(0xff94A3B8))),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 36),
+                child: Text(
+                  'أنت متصل بالشبكة وسيرفر زوون يعمل بالكامل.\nستظهر الطلبات الجديدة هنا فور إرسالها من العملاء مع إشعار وتنبيه صوتي.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Color(0xff94A3B8),
+                    height: 1.5,
+                  ),
+                ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 24),
               Center(
-                  child: OutlinedButton.icon(
-                      onPressed: _fetchAvailableTrips,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('تحديث الطلبات'))),
+                child: ElevatedButton.icon(
+                  onPressed: _fetchAvailableTrips,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('تحديث الرادار الآن'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xff161B26),
+                    foregroundColor: const Color(0xffF97316),
+                    side: const BorderSide(color: Color(0xffF97316), width: 1.2),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -650,20 +1024,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
       itemCount: _incomingTrips.length,
       itemBuilder: (context, index) {
         final trip = _incomingTrips[index];
-        final tripId = trip['id'] ?? trip['rideId'];
+        final tripId = (trip['id'] ?? trip['rideId']).toString();
         final status = trip['status'] ?? 'pending';
         final controller = _offerControllers[tripId];
 
-        final bool isHeadingToCustomer =
-            status == 'accepted' || status == 'driver_arriving';
-        final double? destLat =
-            isHeadingToCustomer ? trip['pickupLat'] : trip['dropoffLat'];
-        final double? destLng =
-            isHeadingToCustomer ? trip['pickupLng'] : trip['dropoffLng'];
         final createdAt =
             DateTime.tryParse(trip['createdAt']?.toString() ?? '');
         final ageMinutes = createdAt == null
@@ -673,347 +1041,1028 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             trip['areaType']?.toString() ??
             'حجز فوري';
         final vehicleType = trip['vehicleType']?.toString() ?? 'VIP Sedan';
+        final fareEstimate = (trip['fareEstimate'] as num?)?.toDouble() ?? 0.0;
 
-        return Card(
-          color: const Color(0xff121620),
-          elevation: 0,
-          margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: BorderSide(
-              color: status == 'pending'
-                  ? const Color(0xff252E3E)
-                  : const Color(0xffF97316),
-              width: 1,
+        final isPending = status == 'pending';
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xff121620),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: isPending
+                  ? const Color(0xffF97316).withOpacity(0.4)
+                  : const Color(0xff4ADE80).withOpacity(0.5),
+              width: 1.2,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.35),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+              if (isPending)
+                BoxShadow(
+                  color: const Color(0xffF97316).withOpacity(0.08),
+                  blurRadius: 14,
+                  spreadRadius: -2,
+                ),
+            ],
           ),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Header of Card: Status Badge + Age + Service Chip
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                        child: Text(
-                            '#${tripId.toString().length > 10 ? tripId.toString().substring(0, 10) : tripId}',
-                            style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white))),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
+                          horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: status == 'pending'
+                        color: isPending
                             ? const Color(0xff2D210F)
-                            : const Color(0xff123022),
+                            : const Color(0xff0D2818),
                         borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        status == 'pending' ? 'جديد' : 'الرحلة الحالية',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: status == 'pending'
-                              ? const Color(0xffF97316)
-                              : const Color(0xff4ADE80),
+                        border: Border.all(
+                          color: isPending
+                              ? const Color(0xffF97316).withOpacity(0.5)
+                              : const Color(0xff4ADE80).withOpacity(0.5),
                         ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isPending
+                                ? Icons.bolt_rounded
+                                : Icons.directions_car_rounded,
+                            size: 15,
+                            color: isPending
+                                ? const Color(0xffF97316)
+                                : const Color(0xff4ADE80),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            isPending ? 'طلب جديد متاح' : 'رحلتك الحالية',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: isPending
+                                  ? const Color(0xffF97316)
+                                  : const Color(0xff4ADE80),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    if (status != 'pending' &&
-                        destLat != null &&
-                        destLng != null)
-                      ElevatedButton.icon(
-                        onPressed: () => _openDirections(destLat, destLng),
-                        icon: const Icon(Icons.directions, size: 18),
-                        label: const Text('الاتجاهات'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xff252E3E),
-                          foregroundColor: const Color(0xffF97316),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
+                    if (ageMinutes != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xff161B26),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xff1E293B)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.schedule_rounded,
+                                size: 13, color: Color(0xff94A3B8)),
+                            const SizedBox(width: 4),
+                            Text(
+                              'منذ $ageMinutes د',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: ageMinutes > 10
+                                    ? const Color(0xffEF4444)
+                                    : const Color(0xff94A3B8),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _customerAvatar(trip),
-                    const SizedBox(width: 9),
-                    Text('العميل: ${trip['userName'] ?? 'عميل'}',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, color: Colors.white)),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(children: [
-                  Icon(Icons.directions_car_outlined,
-                      size: 17, color: Colors.blueGrey.shade600),
-                  const SizedBox(width: 5),
-                  Text('$vehicleType  •  $bookingType',
-                      style: const TextStyle(
-                          color: Color(0xff94A3B8), fontSize: 13))
-                ]),
-                Text('من: ${trip['pickupAddress'] ?? 'غير محدد'}',
-                    style: const TextStyle(color: Color(0xffE2E8F0))),
-                Text('إلى: ${trip['dropoffAddress'] ?? 'غير محدد'}',
-                    style: const TextStyle(color: Color(0xffE2E8F0))),
-                Text(
-                    'المسافة: ${trip['distanceKm']?.toStringAsFixed(1) ?? '0'} كم',
-                    style: const TextStyle(
-                        color: Color(0xffCBD5E1),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600)),
-                if (trip['fareEstimate'] != null || ageMinutes != null) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('${trip['fareEstimate'] ?? 0} ج.م',
-                            style: const TextStyle(
-                                fontSize: 17,
+                const SizedBox(height: 14),
+
+                // Customer Info Row
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xff161B26),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xff1E293B)),
+                  ),
+                  child: Row(
+                    children: [
+                      _customerAvatar(trip),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _resolveCustomerName(trip),
+                              style: const TextStyle(
                                 fontWeight: FontWeight.w800,
-                                color: Color(0xffF97316))),
-                        if (ageMinutes != null)
-                          Text('منذ $ageMinutes دقيقة',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: ageMinutes > 10
-                                      ? const Color(0xffB42318)
-                                      : const Color(0xff94A3B8)))
-                      ]),
-                ],
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    if (trip['areaType'] != null)
-                      Chip(
-                          label: Text(trip['areaType'],
-                              style: const TextStyle(
-                                  fontSize: 12, color: Color(0xffE2E8F0))),
-                          padding: EdgeInsets.zero,
-                          backgroundColor: const Color(0xff252E3E),
-                          side: BorderSide.none),
-                    if (trip['vehicleType'] != null)
-                      Chip(
-                          label: Text(trip['vehicleType'],
-                              style: const TextStyle(
-                                  fontSize: 12, color: Color(0xffE2E8F0))),
-                          padding: EdgeInsets.zero,
-                          backgroundColor: const Color(0xff252E3E),
-                          side: BorderSide.none),
-                    if (trip['tripType'] != null)
-                      Chip(
-                          label: Text(trip['tripType'],
-                              style: const TextStyle(
-                                  fontSize: 12, color: Color(0xffF97316))),
-                          padding: EdgeInsets.zero,
-                          backgroundColor: const Color(0xff2D210F),
-                          side: BorderSide.none),
-                  ],
+                                color: Colors.white,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            // Show customer phone ONLY after order is accepted (hidden when pending outside)
+                            if (!isPending && _resolveCustomerPhone(trip) != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.phone_rounded,
+                                        size: 13, color: Color(0xff10B981)),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _resolveCustomerPhone(trip)!,
+                                      style: const TextStyle(
+                                        color: Color(0xff10B981),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            Row(
+                              children: [
+                                const Icon(Icons.verified_rounded,
+                                    size: 14, color: Color(0xff38BDF8)),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  'عميل معتمد',
+                                  style: TextStyle(
+                                    color: Color(0xff94A3B8),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '• $vehicleType',
+                                  style: const TextStyle(
+                                    color: Color(0xffCBD5E1),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(height: 14),
+
+                // Route Visual Timeline (From -> To)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xff161B26),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xff1E293B)),
+                  ),
+                  child: Column(
+                    children: [
+                      // Pickup Row
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: const Color(0xff10B981).withOpacity(0.2),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: const Color(0xff10B981),
+                                width: 2,
+                              ),
+                            ),
+                            child: Center(
+                              child: Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xff10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'نقطة الانطلاق (الركوب)',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xff94A3B8),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  trip['pickupAddress']?.toString() ?? 'غير محدد',
+                                  style: const TextStyle(
+                                    color: Color(0xffF1F5F9),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Connecting vertical line + Distance Badge
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 2,
+                              height: 28,
+                              color: const Color(0xff334155),
+                            ),
+                            const SizedBox(width: 16),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xff0B0E14),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: const Color(0xff1E293B)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.navigation_rounded,
+                                      size: 12, color: Color(0xffF97316)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'المسافة: ${trip['distanceKm']?.toStringAsFixed(1) ?? '0'} كم',
+                                    style: const TextStyle(
+                                      color: Color(0xffE2E8F0),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Dropoff Row
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: const Color(0xffF97316).withOpacity(0.2),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: const Color(0xffF97316),
+                                width: 2,
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.location_on_rounded,
+                              size: 12,
+                              color: Color(0xffF97316),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'الوجهة (نقطة الوصول)',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xff94A3B8),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  trip['dropoffAddress']?.toString() ?? 'غير محدد',
+                                  style: const TextStyle(
+                                    color: Color(0xffF1F5F9),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
                 if (trip['notes'] != null &&
                     trip['notes'].toString().isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                        color: Colors.yellow.shade50,
-                        borderRadius: BorderRadius.circular(8)),
+                      color: const Color(0xff2D210F).withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: const Color(0xffF97316).withOpacity(0.3)),
+                    ),
                     child: Row(
                       children: [
-                        const Icon(Icons.note, size: 16, color: Colors.orange),
+                        const Icon(Icons.sticky_note_2_outlined,
+                            size: 16, color: Color(0xffF97316)),
                         const SizedBox(width: 8),
                         Expanded(
-                            child: Text('ملاحظة: ${trip['notes']}',
-                                style: const TextStyle(
-                                    fontSize: 13, color: Colors.black87))),
+                          child: Text(
+                            'ملاحظة: ${trip['notes']}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xffFED7AA),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ],
-                const SizedBox(height: 12),
 
-                // Map
-                if (trip['pickupLat'] != null && trip['pickupLng'] != null)
-                  Container(
-                    height: 180,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2)),
+                const SizedBox(height: 14),
+
+                // Big Fare Highlight Box
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xff161B26),
+                        Color(0xff1A202C),
                       ],
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: FlutterMap(
-                        options: MapOptions(
-                          initialCameraFit: CameraFit.bounds(
-                            bounds: LatLngBounds.fromPoints([
-                              LatLng(trip['pickupLat'], trip['pickupLng']),
-                              if (trip['dropoffLat'] != null &&
-                                  trip['dropoffLng'] != null)
-                                LatLng(trip['dropoffLat'], trip['dropoffLng']),
-                            ]),
-                            padding: const EdgeInsets.all(32.0),
-                          ),
-                          interactionOptions: const InteractionOptions(
-                              flags: InteractiveFlag.none),
-                        ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: const Color(0xffF97316).withOpacity(0.3),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.example.rideflow',
-                            tileProvider: CancellableNetworkTileProvider(),
-                          ),
-                          if (trip['dropoffLat'] != null &&
-                              trip['dropoffLng'] != null)
-                            PolylineLayer(
-                              polylines: [
-                                Polyline(
-                                  points: [
-                                    LatLng(
-                                        trip['pickupLat'], trip['pickupLng']),
-                                    LatLng(
-                                        trip['dropoffLat'], trip['dropoffLng']),
-                                  ],
-                                  color: Colors.blue.withOpacity(0.7),
-                                  strokeWidth: 3.0,
-                                  pattern: StrokePattern.dashed(
-                                      segments: const [10.0, 10.0]),
-                                ),
-                              ],
+                          const Text(
+                            'الأجرة المقترحة للرحلة',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xff94A3B8),
+                              fontWeight: FontWeight.w600,
                             ),
-                          MarkerLayer(
-                            markers: [
-                              Marker(
-                                point: LatLng(
-                                    trip['pickupLat'], trip['pickupLng']),
-                                width: 40,
-                                height: 40,
-                                child: const Icon(Icons.location_on,
-                                    color: Colors.blue, size: 40),
-                              ),
-                              if (trip['dropoffLat'] != null &&
-                                  trip['dropoffLng'] != null)
-                                Marker(
-                                  point: LatLng(
-                                      trip['dropoffLat'], trip['dropoffLng']),
-                                  width: 40,
-                                  height: 40,
-                                  child: const Icon(Icons.location_on,
-                                      color: Colors.red, size: 40),
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              Text(
+                                fareEstimate.toStringAsFixed(1),
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xffF97316),
                                 ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'ج.م',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xffF97316),
+                                ),
+                              ),
                             ],
                           ),
                         ],
                       ),
-                    ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xffF97316).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          bookingType,
+                          style: const TextStyle(
+                            color: Color(0xffF97316),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
 
-                const Divider(height: 20),
+                const SizedBox(height: 14),
 
-                // Action Buttons based on Status
-                if (status == 'pending')
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
+                // Map preview if coordinates are available (Clickable to view distances & full route)
+                if (trip['pickupLat'] != null && trip['pickupLng'] != null)
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => DriverTripRouteMapScreen(
+                            trip: trip,
+                            driverPosition: _currentDriverPosition,
+                            onAccept: () {
+                              Navigator.pop(context);
+                              _acceptTrip(trip);
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                    height: 185,
+                    margin: const EdgeInsets.only(bottom: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xff0F131C),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: const Color(0xff2A3447),
+                        width: 1.2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.45),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Stack(
                         children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _acceptTrip(trip),
-                              icon: const Icon(Icons.check_circle_outline,
-                                  size: 18),
-                              label: const Text('قبول الطلب'),
-                              style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xffF97316),
-                                  foregroundColor: Colors.white),
+                          FlutterMap(
+                            options: MapOptions(
+                              initialCameraFit: CameraFit.bounds(
+                                bounds: LatLngBounds.fromPoints([
+                                  LatLng(trip['pickupLat'], trip['pickupLng']),
+                                  if (trip['dropoffLat'] != null &&
+                                      trip['dropoffLng'] != null)
+                                    LatLng(trip['dropoffLat'],
+                                        trip['dropoffLng']),
+                                ]),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 45.0, vertical: 35.0),
+                                maxZoom: 15.0,
+                              ),
+                              interactionOptions: const InteractionOptions(
+                                  flags: InteractiveFlag.none),
+                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate:
+                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'com.zoon.rideflow',
+                                tileProvider: CancellableNetworkTileProvider(),
+                              ),
+                              if (trip['dropoffLat'] != null &&
+                                  trip['dropoffLng'] != null)
+                                PolylineLayer(
+                                  polylines: [
+                                    // Ambient glow polyline (wide & translucent)
+                                    Polyline(
+                                      points: [
+                                        LatLng(trip['pickupLat'],
+                                            trip['pickupLng']),
+                                        LatLng(trip['dropoffLat'],
+                                            trip['dropoffLng']),
+                                      ],
+                                      color: const Color(0xffF97316)
+                                          .withOpacity(0.35),
+                                      strokeWidth: 9.0,
+                                    ),
+                                    // Sharp neon core line
+                                    Polyline(
+                                      points: [
+                                        LatLng(trip['pickupLat'],
+                                            trip['pickupLng']),
+                                        LatLng(trip['dropoffLat'],
+                                            trip['dropoffLng']),
+                                      ],
+                                      color: const Color(0xffF97316),
+                                      strokeWidth: 3.5,
+                                      pattern: StrokePattern.dashed(
+                                          segments: const [9.0, 6.0]),
+                                    ),
+                                  ],
+                                ),
+                              MarkerLayer(
+                                markers: [
+                                  // Pickup Marker (Emerald glowing badge)
+                                  Marker(
+                                    point: LatLng(trip['pickupLat'],
+                                        trip['pickupLng']),
+                                    width: 96,
+                                    height: 36,
+                                    alignment: Alignment.center,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xff0B0E14)
+                                            .withOpacity(0.92),
+                                        borderRadius:
+                                            BorderRadius.circular(20),
+                                        border: Border.all(
+                                            color: const Color(0xff10B981),
+                                            width: 1.5),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(0xff10B981)
+                                                .withOpacity(0.45),
+                                            blurRadius: 8,
+                                            spreadRadius: 1,
+                                          ),
+                                        ],
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Container(
+                                            width: 8,
+                                            height: 8,
+                                            decoration: const BoxDecoration(
+                                              color: Color(0xff10B981),
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 5),
+                                          const Text(
+                                            'نقطة الركوب',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  // Dropoff Marker (Orange glowing badge)
+                                  if (trip['dropoffLat'] != null &&
+                                      trip['dropoffLng'] != null)
+                                    Marker(
+                                      point: LatLng(trip['dropoffLat'],
+                                          trip['dropoffLng']),
+                                      width: 78,
+                                      height: 36,
+                                      alignment: Alignment.center,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xff0B0E14)
+                                              .withOpacity(0.92),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                          border: Border.all(
+                                              color: const Color(0xffF97316),
+                                              width: 1.5),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.location_on,
+                                                color: Color(0xffF97316),
+                                                size: 13),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'الوجهة',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+
+                          // Vignette edge fade overlay
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      const Color(0xff121620).withOpacity(0.55),
+                                      Colors.transparent,
+                                      Colors.transparent,
+                                      const Color(0xff121620).withOpacity(0.55),
+                                    ],
+                                    stops: const [0.0, 0.22, 0.78, 1.0],
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _showTripDetails(trip),
-                              icon: const Icon(Icons.visibility_outlined,
-                                  size: 18),
-                              label: const Text('تفاصيل'),
-                              style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xff0A0A0A)),
+
+                          // Top-Right Glass HUD badge (Distance / Route title)
+                          Positioned(
+                            top: 10,
+                            right: 10,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xff0B0E14)
+                                    .withOpacity(0.85),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                    color: const Color(0xff334155)),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.5),
+                                    blurRadius: 6,
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.alt_route_rounded,
+                                      color: Color(0xffF97316), size: 14),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    trip['distanceKm'] != null
+                                        ? '${trip['distanceKm'] is num ? trip['distanceKm'].toStringAsFixed(1) : trip['distanceKm']} كم • مسار الرحلة'
+                                        : 'المسار التقديري للرحلة',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // Top-Left Glass HUD badge (Dark Night Mode indicator)
+                          Positioned(
+                            top: 10,
+                            left: 10,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xff0B0E14)
+                                    .withOpacity(0.85),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                    color: const Color(0xff1E293B)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xff10B981),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  const Text(
+                                    'خريطة المسار 🗺️',
+                                    style: TextStyle(
+                                      color: Color(0xff94A3B8),
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // Bottom Interactive Pill (Tap hint)
+                          Positioned(
+                            bottom: 8,
+                            left: 8,
+                            right: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xff0B0E14).withOpacity(0.92),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: const Color(0xff06B6D4).withOpacity(0.65),
+                                  width: 1.0,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.5),
+                                    blurRadius: 6,
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.touch_app_rounded,
+                                      color: Color(0xff06B6D4), size: 14),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'اضغط لمعاينة المسافة للعميل والوجهة بالتفصيل 🗺️',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  SizedBox(width: 4),
+                                  Icon(Icons.arrow_forward_ios_rounded,
+                                      color: Color(0xff06B6D4), size: 9),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // Touch Overlay (Captures taps anywhere on the map card)
+                          Positioned.fill(
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => DriverTripRouteMapScreen(
+                                        trip: trip,
+                                        driverPosition: _currentDriverPosition,
+                                        onAccept: () {
+                                          Navigator.pop(context);
+                                          _acceptTrip(trip);
+                                        },
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                    ),
+                  ),
+                ),
+
+                // Actions Area
+                if (isPending)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Quick Counter-Offer Box
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xff161B26),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xff1E293B)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'تقديم عرض سعر مخصص (اختياري):',
+                              style: TextStyle(
+                                color: Color(0xff94A3B8),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            // Quick Increment Pills
+                            Row(
+                              children: [
+                                _quickAddChip(controller, 10, fareEstimate),
+                                const SizedBox(width: 8),
+                                _quickAddChip(controller, 20, fareEstimate),
+                                const SizedBox(width: 8),
+                                _quickAddChip(controller, 50, fareEstimate),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: Container(
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xff0B0E14),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                          color: const Color(0xff334155)),
+                                    ),
+                                    child: TextField(
+                                      controller: controller,
+                                      keyboardType: TextInputType.number,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                      ),
+                                      decoration: const InputDecoration(
+                                        hintText: 'السعر (ج.م)',
+                                        hintStyle: TextStyle(
+                                            color: Color(0xff64748B),
+                                            fontSize: 13),
+                                        border: InputBorder.none,
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 12),
+                                      ),
+                                      enabled: trip['offerSent'] != true,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  flex: 2,
+                                  child: SizedBox(
+                                    height: 48,
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: trip['offerSent'] == true
+                                            ? const Color(0xff334155)
+                                            : const Color(0xffF97316),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      onPressed: trip['offerSent'] == true
+                                          ? null
+                                          : () async {
+                                              final amount = double.tryParse(
+                                                      controller?.text ?? '') ??
+                                                  fareEstimate;
+                                              if (!context.mounted) return;
+                                              await _submitOffer(tripId, amount);
+                                              if (mounted) {
+                                                setState(() {
+                                                  final idx = _incomingTrips
+                                                      .indexWhere((t) =>
+                                                          (t['id'] ??
+                                                                  t['rideId'])
+                                                              .toString() ==
+                                                          tripId);
+                                                  if (idx != -1) {
+                                                    _incomingTrips[idx]
+                                                        ['offerSent'] = true;
+                                                  }
+                                                });
+                                              }
+                                            },
+                                      child: Text(
+                                        trip['offerSent'] == true
+                                            ? 'في الانتظار'
+                                            : 'إرسال العرض',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Main Accept and Details Buttons
                       Row(
                         children: [
                           Expanded(
-                            flex: 2,
-                            child: TextField(
-                              controller: controller,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'عرضك (جنيه)',
-                                border: OutlineInputBorder(),
-                                contentPadding:
-                                    EdgeInsets.symmetric(horizontal: 12),
+                            flex: 3,
+                            child: Container(
+                              height: 50,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xffF97316),
+                                    Color(0xffEA580C)
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xffF97316)
+                                        .withOpacity(0.35),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
                               ),
-                              enabled: trip['offerSent'] !=
-                                  true, // Disable if already sent
+                              child: ElevatedButton.icon(
+                                onPressed: () => _acceptTrip(trip),
+                                icon: const Icon(Icons.check_circle_rounded,
+                                    size: 20, color: Colors.white),
+                                label: const Text(
+                                  'قبول الطلب فوراً',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Expanded(
-                            flex: 1,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: trip['offerSent'] == true
-                                    ? Colors.grey
-                                    : const Color(0xffF97316),
-                                foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
+                            flex: 2,
+                            child: SizedBox(
+                              height: 50,
+                              child: OutlinedButton.icon(
+                                onPressed: () => _showTripDetails(trip),
+                                icon: const Icon(Icons.visibility_rounded,
+                                    size: 18),
+                                label: const Text(
+                                  'التفاصيل',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xffF97316),
+                                  side: const BorderSide(
+                                    color: Color(0xffF97316),
+                                    width: 1.2,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
                               ),
-                              onPressed: trip['offerSent'] == true
-                                  ? null
-                                  : () async {
-                                      final amount = double.tryParse(
-                                              controller?.text ?? '') ??
-                                          (trip['fareEstimate'] as num?)
-                                              ?.toDouble() ??
-                                          0;
-                                      if (!context.mounted) return;
-                                      await _submitOffer(tripId, amount);
-                                      if (mounted) {
-                                        setState(() {
-                                          // Mark as sent locally to disable button
-                                          final idx = _incomingTrips.indexWhere(
-                                              (t) =>
-                                                  (t['id'] ?? t['rideId']) ==
-                                                  tripId);
-                                          if (idx != -1)
-                                            _incomingTrips[idx]['offerSent'] =
-                                                true;
-                                        });
-                                      }
-                                    },
-                              child: Text(
-                                  trip['offerSent'] == true
-                                      ? 'في الانتظار'
-                                      : 'إرسال العرض',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13)),
                             ),
                           ),
                         ],
@@ -1021,70 +2070,161 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     ],
                   )
                 else if (status == 'accepted')
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () =>
-                          _updateTripStatus(tripId, 'driver_arriving'),
+                  Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xffF59E0B), Color(0xffD97706)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xffF59E0B).withOpacity(0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        await _updateTripStatus(tripId, 'driver_arriving');
+                        _openTripTracking(trip);
+                      },
+                      icon: const Icon(Icons.directions_car_rounded,
+                          color: Colors.white),
+                      label: const Text(
+                        'تحرك للعميل (في الطريق)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Colors.white,
+                        ),
+                      ),
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14)),
-                      child: const Text('تحرك للعميل (في الطريق)',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16)),
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
                     ),
                   )
                 else if (status == 'driver_arriving')
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () =>
-                          _updateTripStatus(tripId, 'driver_arrived'),
+                  Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xff0EA5E9), Color(0xff0284C7)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xff0EA5E9).withOpacity(0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        await _updateTripStatus(tripId, 'driver_arrived');
+                        _openTripTracking(trip);
+                      },
+                      icon: const Icon(Icons.place_rounded, color: Colors.white),
+                      label: const Text(
+                        'وصلت لموقع العميل 📍',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Colors.white,
+                        ),
+                      ),
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14)),
-                      child: const Text('وصلت لموقع العميل',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16)),
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
                     ),
                   )
                 else if (status == 'driver_arrived')
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        _updateTripStatus(tripId, 'start');
-                        final lat =
-                            (trip['dropoffLat'] as num?)?.toDouble() ?? 0;
-                        final lng =
-                            (trip['dropoffLng'] as num?)?.toDouble() ?? 0;
-                        if (lat != 0 && lng != 0) _openDirections(lat, lng);
+                  Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xff8B5CF6), Color(0xff7C3AED)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xff8B5CF6).withOpacity(0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        await _updateTripStatus(tripId, 'start');
+                        _openTripTracking(trip);
                       },
+                      icon: const Icon(Icons.rocket_launch_rounded,
+                          color: Colors.white),
+                      label: const Text(
+                        'بدء الرحلة والتوجه للوجهة 🚀',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Colors.white,
+                        ),
+                      ),
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xffF97316),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14)),
-                      child: const Text('بدء الرحلة والتوجه للوجهة',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16)),
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
                     ),
                   )
                 else if (status == 'started')
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _updateTripStatus(tripId, 'completed'),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14)),
-                      child: const Text('تم التوصيل بنجاح',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16)),
+                  Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xff10B981), Color(0xff059669)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xff10B981).withOpacity(0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                  )
+                    child: ElevatedButton.icon(
+                      onPressed: () => _updateTripStatus(tripId, 'completed'),
+                      icon: const Icon(Icons.check_circle_rounded,
+                          color: Colors.white),
+                      label: const Text(
+                        'تم التوصيل بنجاح واستلام الأجرة ✅',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1093,24 +2233,80 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     );
   }
 
+  Widget _quickAddChip(
+      TextEditingController? controller, int addAmount, double baseFare) {
+    return InkWell(
+      onTap: () {
+        if (controller != null) {
+          final current = double.tryParse(controller.text) ?? baseFare;
+          controller.text = (current + addAmount).toStringAsFixed(0);
+        }
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xff0B0E14),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xff334155)),
+        ),
+        child: Text(
+          '+$addAmount ج.م',
+          style: const TextStyle(
+            color: Color(0xffF97316),
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _customerAvatar(Map<String, dynamic> trip) {
     final image =
         (trip['customerImageUrl'] ?? trip['userImageUrl'])?.toString();
     if (image == null || image.isEmpty) {
-      return const CircleAvatar(
-        radius: 20,
-        backgroundColor: Color(0xff252E3E),
-        child: Icon(Icons.person, color: Color(0xffF97316)),
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xff1E293B),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: const Color(0xffF97316).withOpacity(0.5),
+            width: 1.5,
+          ),
+        ),
+        child: const Icon(Icons.person_rounded, color: Color(0xffF97316), size: 24),
       );
     }
     try {
       final bytes = base64Decode(image.split(',').last);
-      return CircleAvatar(radius: 20, backgroundImage: MemoryImage(bytes));
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: const Color(0xffF97316),
+            width: 1.5,
+          ),
+          image: DecorationImage(image: MemoryImage(bytes), fit: BoxFit.cover),
+        ),
+      );
     } catch (_) {
-      return const CircleAvatar(
-        radius: 20,
-        backgroundColor: Color(0xff252E3E),
-        child: Icon(Icons.person, color: Color(0xffF97316)),
+      return Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xff1E293B),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: const Color(0xffF97316).withOpacity(0.5),
+            width: 1.5,
+          ),
+        ),
+        child: const Icon(Icons.person_rounded, color: Color(0xffF97316), size: 24),
       );
     }
   }

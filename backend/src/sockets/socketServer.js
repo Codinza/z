@@ -1,5 +1,6 @@
 // Track online drivers
 import { getPendingRides } from '../services/tripService.js';
+import logger from '../utils/logger.js';
 
 const onlineDrivers = new Map(); // socketId -> driverId
 
@@ -13,14 +14,14 @@ export function getOnlineDriversList() {
 
 export function initSocketServer(io) {
   io.on('connection', (socket) => {
-    console.log('Socket connected:', socket.id);
+    logger.info('Socket connected', { socketId: socket.id });
 
     socket.on('driver:ready', async (driverId) => {
       socket.join(`driver:${driverId}`);
       socket.join('drivers');
       // Track this driver as online
       onlineDrivers.set(socket.id, driverId);
-      console.log(`Driver ${driverId} is now online. Total online: ${onlineDrivers.size}`);
+      logger.info('Driver is now online', { driverId, onlineCount: onlineDrivers.size });
       io.emit('driver:status', { driverId, ready: true, onlineCount: onlineDrivers.size });
       const pendingRides = await getPendingRides();
       for (const ride of pendingRides) {
@@ -110,10 +111,10 @@ export function initSocketServer(io) {
       const driverId = onlineDrivers.get(socket.id);
       if (driverId) {
         onlineDrivers.delete(socket.id);
-        console.log(`Driver ${driverId} went offline. Total online: ${onlineDrivers.size}`);
+        logger.info('Driver went offline', { driverId, onlineCount: onlineDrivers.size });
         io.emit('driver:status', { driverId, ready: false, onlineCount: onlineDrivers.size });
       }
-      console.log('Socket disconnected:', socket.id);
+      logger.info('Socket disconnected', { socketId: socket.id });
     });
   });
 }

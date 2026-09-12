@@ -7,6 +7,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb) {
     await NotificationService().init();
+    await NotificationService().requestPermission();
   }
   runApp(const RideFlowApp());
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../auth/api_service.dart';
+import 'order_tracking_screen.dart';
 
 class CustomerTripsScreen extends StatefulWidget {
   const CustomerTripsScreen({super.key});
@@ -36,13 +37,14 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
       final trips = await ApiService.getCustomerOrders();
       if (!mounted) return;
       setState(() {
-        _pastTrips = trips.cast<Map<String, dynamic>>();
+        _pastTrips = List<Map<String, dynamic>>.from(trips);
+        _errorMessage = '';
         _isLoadingPastTrips = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _errorMessage = 'تعذر تحميل الرحلات حالياً، يرجى المحاولة مرة أخرى';
         _isLoadingPastTrips = false;
       });
     }
@@ -51,27 +53,10 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
   Future<void> _loadRecurringTrips() async {
     try {
       if (mounted) setState(() => _isLoadingRecurringTrips = true);
-      // Mock recurring trips for now (implement actual API later)
+      final trips = await ApiService.getRecurringTrips();
       if (!mounted) return;
       setState(() {
-        _recurringTrips = [
-          {
-            'name': 'الذهاب للعمل',
-            'from': 'شارع النيل، القاهرة',
-            'to': 'مدينة نصر، الدقي',
-            'frequency': 'يومياً - الأحد إلى الخميس',
-            'time': '08:00 ص',
-            'lastTrip': 'آخر استخدام: اليوم',
-          },
-          {
-            'name': 'العودة من العمل',
-            'from': 'مدينة نصر، الدقي',
-            'to': 'شارع النيل، القاهرة',
-            'frequency': 'يومياً - الأحد إلى الخميس',
-            'time': '06:00 م',
-            'lastTrip': 'آخر استخدام: اليوم',
-          },
-        ];
+        _recurringTrips = trips;
         _isLoadingRecurringTrips = false;
       });
     } catch (e) {
@@ -153,7 +138,7 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
   Widget _buildPastTripsTab() {
     return SingleChildScrollView(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         child: Column(
           children: _pastTrips.asMap().entries.map((entry) {
             Map<String, dynamic> trip = entry.value;
@@ -167,7 +152,22 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
                 cost: trip['cost']?.toString() ?? '0',
                 status: trip['status'] ?? 'pending',
                 statusColor: trip['statusColor'] == 'success' ? Colors.green : Colors.red,
-                onTap: () {},
+                onTap: () {
+                  final id = trip['id']?.toString();
+                  if (id != null && id.isNotEmpty) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => OrderTrackingScreen(
+                          orderId: id,
+                          isTrip: trip['serviceType'] == null ||
+                              trip['serviceType'] == 'TRIP' ||
+                              trip['type'] == 'trip',
+                        ),
+                      ),
+                    );
+                  }
+                },
               ),
             );
           }).toList(),
@@ -176,33 +176,95 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
     );
   }
 
+  void _bookRecurringTrip(Map<String, dynamic> trip) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xff111315),
+        content: Text(
+          'تم اختيار وجهة: ${trip['to'] ?? ''}\nتوجه إلى الرئيسية لتأكيد الطلب الآن',
+          style: const TextStyle(color: Colors.white, fontSize: 13.5),
+        ),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
   Widget _buildRecurringTripsTab() {
-    return _isLoadingRecurringTrips
-        ? const Center(
-            child: CircularProgressIndicator(color: Color(0xffF97316)),
-          )
-        : SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: _recurringTrips.asMap().entries.map((entry) {
-                  Map<String, dynamic> trip = entry.value;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _buildRecurringTripCard(
-                      name: trip['name'] ?? 'Unknown',
-                      from: trip['from'] ?? 'Unknown',
-                      to: trip['to'] ?? 'Unknown',
-                      frequency: trip['frequency'] ?? '',
-                      time: trip['time'] ?? '',
-                      lastTrip: trip['lastTrip'] ?? '',
-                      onBook: () {},
-                    ),
-                  );
-                }).toList(),
+    if (_isLoadingRecurringTrips) {
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xffF97316)),
+      );
+    }
+
+    if (_recurringTrips.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  color: const Color(0xffF97316).withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.repeat_rounded,
+                  size: 40,
+                  color: Color(0xffF97316),
+                ),
               ),
-            ),
-          );
+              const SizedBox(height: 18),
+              const Text(
+                'لا توجد رحلات متكررة بعد',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'عندما تطلب مشاويرك ووجهاتك أكثر من مرة، ستظهر هنا تلقائياً لتمكنك من حجزها بضغطة زر واحدة.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xff94A3B8),
+                  fontSize: 13.5,
+                  height: 1.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        child: Column(
+          children: _recurringTrips.asMap().entries.map((entry) {
+            Map<String, dynamic> trip = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildRecurringTripCard(
+                name: trip['name'] ?? 'مشوار متكرر',
+                from: trip['from'] ?? 'غير محدد',
+                to: trip['to'] ?? 'غير محدد',
+                frequency: trip['frequency'] ?? 'رحلة متكررة',
+                time: trip['time'] ?? '',
+                lastTrip: trip['lastTrip'] ?? '',
+                onBook: () => _bookRecurringTrip(trip),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
   }
 
   Widget _buildTripCard({
