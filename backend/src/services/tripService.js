@@ -542,7 +542,7 @@ class TripService {
     try {
       let driverDbId = null;
       if (ride.driverId) {
-        const driverRecord = await prisma.driver.findFirst({
+        let driverRecord = await prisma.driver.findFirst({
           where: {
             OR: [
               { id: ride.driverId },
@@ -550,6 +550,16 @@ class TripService {
             ],
           },
         });
+        if (!driverRecord) {
+          const userExists = await prisma.user.findUnique({ where: { id: ride.driverId } });
+          if (userExists) {
+            try {
+              driverRecord = await prisma.driver.create({
+                data: { userId: userExists.id, status: 'approved' },
+              });
+            } catch (_) {}
+          }
+        }
         if (driverRecord) {
           driverDbId = driverRecord.id;
         }
