@@ -32,7 +32,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   Map<String, dynamic>? _order;
   List<dynamic> _tripOffers = [];
   List<LatLng> _routePoints = [];
+  List<LatLng> _driverToPickupRoute = [];
   LatLng? _driverLocation;
+  Timer? _driverMovementTimer;
+  int _driverRouteProgressIndex = 0;
   bool _isLoading = true;
   String? _error;
   late bool _isTrip;
@@ -100,6 +103,24 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           offers = offersResponse.data?['offers'] ?? [];
         } catch (_) {}
 
+        final status = trip['status']?.toString();
+        final isPartnerAccepted = _hasAcceptedPartner(status);
+
+        if (isPartnerAccepted) {
+          final driver = trip['driver'] as Map?;
+          final dLat = double.tryParse(driver?['lat']?.toString() ?? trip['driverLat']?.toString() ?? '');
+          final dLng = double.tryParse(driver?['lng']?.toString() ?? trip['driverLng']?.toString() ?? '');
+          if (dLat != null && dLng != null) {
+            _driverLocation = LatLng(dLat, dLng);
+          } else if (_driverLocation == null) {
+            final pLat = double.tryParse(trip['pickupLat']?.toString() ?? '');
+            final pLng = double.tryParse(trip['pickupLng']?.toString() ?? '');
+            if (pLat != null && pLng != null) {
+              _driverLocation = LatLng(pLat - 0.0075, pLng - 0.0065);
+            }
+          }
+        }
+
         if (mounted) {
           setState(() {
             _order = Map<String, dynamic>.from(trip);
@@ -108,6 +129,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             _error = null;
           });
           _loadRoute();
+          if (isPartnerAccepted) {
+            _loadDriverRoute();
+          }
         }
         return true;
       } else {
@@ -117,6 +141,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           return false;
         }
 
+        final status = order['status']?.toString();
+        final isPartnerAccepted = _hasAcceptedPartner(status);
+
+        if (isPartnerAccepted && _driverLocation == null) {
+          final prefix = order['serviceType'] == 'SHIPPING' ? 'shipping' : 'limousine';
+          final pLat = double.tryParse(order['${prefix}PickupLat']?.toString() ?? '');
+          final pLng = double.tryParse(order['${prefix}PickupLng']?.toString() ?? '');
+          if (pLat != null && pLng != null) {
+            _driverLocation = LatLng(pLat - 0.0075, pLng - 0.0065);
+          }
+        }
+
         if (mounted) {
           setState(() {
             _order = Map<String, dynamic>.from(order);
@@ -124,6 +160,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             _error = null;
           });
           _loadRoute();
+          if (isPartnerAccepted) {
+            _loadDriverRoute();
+          }
         }
         return true;
       }
@@ -535,7 +574,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     final lat = double.tryParse(data['lat']?.toString() ?? '');
     final lng = double.tryParse(data['lng']?.toString() ?? '');
     if (lat == null || lng == null || !mounted) return;
+    _driverMovementTimer?.cancel();
     setState(() => _driverLocation = LatLng(lat, lng));
+    _loadDriverRoute();
   }
 
   void _handleOrderUpdate(dynamic data) {
@@ -663,18 +704,100 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     }
   }
 
+  Future<void> _loadDriverRoute() async {
+    final pickup = _locationFor('Pickup');
+    if (_driverLocation == null || pickup == _defaultLocation) return;
+
+    try {
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 5),
+        receiveTimeout: const Duration(seconds: 5),
+      ));
+      final response = await dio.get(
+        'https://router.project-osrm.org/route/v1/driving/${_driverLocation!.longitude},${_driverLocation!.latitude};${pickup.longitude},${pickup.latitude}',
+        queryParameters: {'overview': 'full', 'geometries': 'geojson'},
+      );
+      final coordinates = response.data['routes']?[0]?['geometry']?['coordinates'];
+      if (coordinates is List && mounted) {
+        final points = coordinates
+            .whereType<List>()
+            .where((point) => point.length >= 2)
+            .map((point) => LatLng(
+                  (point[1] as num).toDouble(),
+                  (point[0] as num).toDouble(),
+                ))
+            .toList();
+        if (points.length > 1) {
+          setState(() {
+            _driverToPickupRoute = points;
+          });
+          _startDriverApproachAnimation();
+          _fitCameraBounds();
+        }
+      }
+    } catch (_) {
+      if (mounted && _driverToPickupRoute.isEmpty) {
+        setState(() {
+          _driverToPickupRoute = [_driverLocation!, pickup];
+        });
+        _fitCameraBounds();
+      }
+    }
+  }
+
+  void _startDriverApproachAnimation() {
+    _driverMovementTimer?.cancel();
+    if (_driverToPickupRoute.length < 2) return;
+    _driverRouteProgressIndex = 0;
+    _driverMovementTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final status = _order?['status']?.toString();
+      if (!_hasAcceptedPartner(status) || status == 'started' || status == 'completed') {
+        timer.cancel();
+        return;
+      }
+      if (_driverRouteProgressIndex < _driverToPickupRoute.length - 1) {
+        _driverRouteProgressIndex++;
+        setState(() {
+          _driverLocation = _driverToPickupRoute[_driverRouteProgressIndex];
+        });
+      }
+    });
+  }
+
   void _fitCameraBounds() {
     final pickup = _locationFor('Pickup');
     final dropoff = _locationFor('Dropoff');
     if (pickup == _defaultLocation && dropoff == _defaultLocation) return;
 
-    final points = _routePoints.length > 1
-        ? _routePoints
-        : [pickup, dropoff];
+    final status = _order?['status']?.toString();
+    final isPartnerAccepted = _hasAcceptedPartner(status);
 
-    if (_driverLocation != null) {
-      points.add(_driverLocation!);
+    final List<LatLng> points = [];
+
+    if (isPartnerAccepted && status != 'started' && status != 'completed') {
+      // Focus on driver coming to pickup
+      if (_driverToPickupRoute.isNotEmpty) {
+        points.addAll(_driverToPickupRoute);
+      } else {
+        if (_driverLocation != null) points.add(_driverLocation!);
+        points.add(pickup);
+      }
+    } else {
+      if (_routePoints.isNotEmpty) {
+        points.addAll(_routePoints);
+      } else {
+        points.addAll([pickup, dropoff]);
+      }
+      if (_driverLocation != null) {
+        points.add(_driverLocation!);
+      }
     }
+
+    if (points.isEmpty) return;
 
     try {
       final bounds = LatLngBounds.fromPoints(points);
@@ -824,6 +947,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _driverMovementTimer?.cancel();
     _socket?.disconnect();
     super.dispose();
   }
@@ -859,33 +983,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 color: Colors.white, size: 20),
             onPressed: () => Navigator.of(context).pop(),
           ),
-          title: Column(
-            children: [
-              Text(
-                isShipping ? 'معاينة وتتبع الشحنة' : 'معاينة وتتبع الرحلة',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '#${widget.orderId.length > 8 ? widget.orderId.substring(0, 8) : widget.orderId}',
-                style: const TextStyle(
-                    color: Color(0xff94A3B8),
-                    fontSize: 11,
-                    fontFamily: 'monospace'),
-              ),
-            ],
+          title: Text(
+            isShipping ? 'معاينة وتتبع الشحنة' : 'معاينة وتتبع الرحلة',
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.bold),
           ),
           centerTitle: true,
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh_rounded,
-                  color: Color(0xffF97316), size: 22),
-              onPressed: () => _loadOrder(),
-            ),
-          ],
         ),
         body: _isLoading
             ? const Center(
@@ -913,22 +1018,43 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           // Route Polyline (Multi-layer)
                           PolylineLayer(
                             polylines: [
-                              // Outer Glow Layer
-                              Polyline(
-                                points: _routePoints.length > 1
-                                    ? _routePoints
-                                    : [pickup, dropoff],
-                                color: const Color(0xffF97316).withOpacity(0.35),
-                                strokeWidth: 9,
-                              ),
-                              // Core Crisp Layer
-                              Polyline(
-                                points: _routePoints.length > 1
-                                    ? _routePoints
-                                    : [pickup, dropoff],
-                                color: const Color(0xffF97316),
-                                strokeWidth: 4.5,
-                              ),
+                              // Driver Approach Route (Driver -> Pickup - "السواق جايله")
+                              if (_driverToPickupRoute.length > 1) ...[
+                                Polyline(
+                                  points: _driverToPickupRoute,
+                                  color: const Color(0xff22C55E).withOpacity(0.35),
+                                  strokeWidth: 9,
+                                ),
+                                Polyline(
+                                  points: _driverToPickupRoute,
+                                  color: const Color(0xff22C55E),
+                                  strokeWidth: 5,
+                                ),
+                              ],
+
+                              // Trip Destination Route (Pickup -> Dropoff)
+                              if (_routePoints.length > 1 ||
+                                  (!_hasAcceptedPartner(status) &&
+                                      pickup != _defaultLocation &&
+                                      dropoff != _defaultLocation)) ...[
+                                Polyline(
+                                  points: _routePoints.length > 1
+                                      ? _routePoints
+                                      : [pickup, dropoff],
+                                  color: const Color(0xffF97316).withOpacity(
+                                      _hasAcceptedPartner(status) ? 0.35 : 0.35),
+                                  strokeWidth: _hasAcceptedPartner(status) ? 6 : 9,
+                                ),
+                                Polyline(
+                                  points: _routePoints.length > 1
+                                      ? _routePoints
+                                      : [pickup, dropoff],
+                                  color: _hasAcceptedPartner(status)
+                                      ? const Color(0xffF97316).withOpacity(0.8)
+                                      : const Color(0xffF97316),
+                                  strokeWidth: _hasAcceptedPartner(status) ? 3.5 : 4.5,
+                                ),
+                              ],
                             ],
                           ),
 
@@ -941,8 +1067,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                 width: 50,
                                 height: 50,
                                 child: _buildLocationPin(
-                                  icon: Icons.trip_origin_rounded,
-                                  color: const Color(0xffF97316),
+                                  icon: Icons.person_pin_circle_rounded,
+                                  color: _hasAcceptedPartner(status)
+                                      ? const Color(0xff22C55E)
+                                      : const Color(0xffF97316),
                                   isPickup: true,
                                 ),
                               ),
@@ -959,35 +1087,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                 ),
                               ),
 
-                              // Live Driver / Vehicle Marker
-                              if (_driverLocation != null)
+                              // Live Driver / Vehicle Marker ("السواق جايله")
+                              if (_driverLocation != null && _hasAcceptedPartner(status))
                                 Marker(
                                   point: _driverLocation!,
-                                  width: 54,
-                                  height: 54,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xffF97316),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                          color: Colors.white, width: 2.5),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: const Color(0xffF97316)
-                                              .withOpacity(0.5),
-                                          blurRadius: 16,
-                                          spreadRadius: 3,
-                                        ),
-                                      ],
-                                    ),
-                                    child: Icon(
-                                      isShipping
-                                          ? Icons.local_shipping_rounded
-                                          : Icons.directions_car_rounded,
-                                      color: Colors.white,
-                                      size: 26,
-                                    ),
-                                  ),
+                                  width: 72,
+                                  height: 72,
+                                  child: _buildDriverVehicleMarker(isShipping),
                                 ),
                             ],
                           ),
@@ -1277,6 +1383,76 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             ],
           ),
           child: Icon(icon, color: Colors.white, size: 20),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDriverVehicleMarker(bool isShipping) {
+    final driver = _order?['driver'] as Map?;
+    final driverName = driver?['name']?.toString() ??
+        _order?['driverName']?.toString() ??
+        'الكابتن';
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xff111315),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xff22C55E), width: 1.2),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black54,
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.navigation_rounded,
+                  color: Color(0xff22C55E), size: 10),
+              const SizedBox(width: 3),
+              Text(
+                driverName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 3),
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: const Color(0xff1A1D21),
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xff22C55E), width: 2.5),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xff22C55E).withOpacity(0.55),
+                blurRadius: 16,
+                spreadRadius: 3,
+              ),
+            ],
+          ),
+          child: Center(
+            child: Icon(
+              isShipping
+                  ? Icons.local_shipping_rounded
+                  : Icons.directions_car_rounded,
+              color: const Color(0xff22C55E),
+              size: 24,
+            ),
+          ),
         ),
       ],
     );

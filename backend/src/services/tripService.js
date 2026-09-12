@@ -129,6 +129,11 @@ class TripService {
         const dRating = ratingsData?.averageRating ?? trip.driverRating ?? 5.0;
         const dTotal = ratingsData?.totalRatings ?? trip.driverTotalRatings ?? 0;
 
+        const { locationRepository } = await import('../repositories/locationRepository.js');
+        const driverLoc = await locationRepository.findDriverLocation(driverRecord?.id || trip.driverId);
+        const dLat = driverLoc?.lat ?? trip.driverLat ?? null;
+        const dLng = driverLoc?.lng ?? trip.driverLng ?? null;
+
         trip.driver = {
           id: driverRecord?.id ?? trip.driverId,
           name: driverRecord?.user?.name ?? trip.driverName ?? 'كابتن زوون',
@@ -137,6 +142,8 @@ class TripService {
           driverImage: dImage,
           rating: dRating,
           totalRatings: dTotal,
+          lat: dLat,
+          lng: dLng,
           car: driverRecord?.car ?? null,
         };
         trip.driverName = trip.driver.name;
@@ -144,6 +151,8 @@ class TripService {
         trip.driverImage = dImage;
         trip.driverRating = dRating;
         trip.driverTotalRatings = dTotal;
+        trip.driverLat = dLat;
+        trip.driverLng = dLng;
       } catch (_) {}
     }
 
@@ -940,6 +949,10 @@ class TripService {
         driverImage: offer.driverImage,
         driverRating: offer.rating,
         driverTotalRatings: offer.totalRatings,
+        driverLat: ride.driverLat,
+        driverLng: ride.driverLng,
+        lat: ride.driverLat,
+        lng: ride.driverLng,
       });
     }
 
