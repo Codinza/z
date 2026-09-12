@@ -23,6 +23,7 @@ import { generalLimiter, authLimiter, sensitiveLimiter } from './middlewares/rat
 import logger from './utils/logger.js';
 
 const app = express();
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {

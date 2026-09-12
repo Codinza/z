@@ -4,9 +4,9 @@ import logger from '../utils/logger.js';
 // General rate limiter for all routes
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 3000, // Accommodate real-time polling & shared mobile carrier IPs
   message: {
-    error: 'Too many requests from this IP, please try again later.',
+    error: 'Too many requests, please try again later.',
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -17,15 +17,15 @@ export const generalLimiter = rateLimit({
       url: req.url,
     });
     res.status(429).json({
-      error: 'Too many requests from this IP, please try again later.',
+      error: 'Too many requests, please try again later.',
     });
   },
 });
 
-// Strict rate limiter for authentication routes
+// Rate limiter for authentication routes
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: 30, // Limit each IP to 30 requests per windowMs
   message: {
     error: 'Too many authentication attempts, please try again later.',
   },
