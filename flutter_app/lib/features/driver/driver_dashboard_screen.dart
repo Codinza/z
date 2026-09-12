@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'dart:async';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
@@ -389,11 +390,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error fetching trips: $e')),
-        );
-      }
+      debugPrint('Silent error fetching trips: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -406,26 +403,51 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   Future<void> _submitOffer(String tripId, double offerAmount) async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.post(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/trips/$tripId/offer'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
+      final driverName = await AuthService.getUserName() ?? 'كابتن زوون';
+      final driverPhone = await AuthService.getUserPhone() ?? '';
+
+      final response = await ApiClient().dio.post(
+        '/api/trips/$tripId/offer',
+        data: {
           'driverId': _driverId,
           'offerAmount': offerAmount,
-        }),
+          'driverName': driverName,
+          'driverPhone': driverPhone,
+        },
       );
 
       if (response.statusCode == 200 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content:
-                  Text('تم إرسال العرض: $offerAmount ج.م - في انتظار العميل')),
+            content: Text(
+                'تم إرسال العرض: ${offerAmount.toStringAsFixed(0)} ج.م - في انتظار موافقة العميل 🎉'),
+            backgroundColor: const Color(0xff10B981),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } on DioException catch (e) {
+      if (mounted) {
+        final errorMsg = e.response?.data?['message'] ??
+            e.response?.data?['error'] ??
+            e.message ??
+            'تعذر إرسال العرض';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر إرسال العرض: $errorMsg'),
+            backgroundColor: const Color(0xffEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error submitting offer: $e')),
+          SnackBar(
+            content: Text('خطأ أثناء إرسال العرض: $e'),
+            backgroundColor: const Color(0xffEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } finally {

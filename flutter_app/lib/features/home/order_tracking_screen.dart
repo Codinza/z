@@ -459,11 +459,31 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   void _handleNewOffer(dynamic data) {
-    if (data is! Map || data['rideId']?.toString() != widget.orderId) return;
+    if (data is! Map) return;
+    final rId = (data['rideId'] ?? data['tripId'] ?? data['orderId'])?.toString();
+    if (rId != null && rId != widget.orderId) return;
+
+    final driverName = data['driverName']?.toString() ?? 'كابتن';
+    final offerAmount = data['offerAmount'] ?? data['price'] ?? '';
+
     NotificationService().showNotification(
       title: 'عرض سعر جديد! 💰',
-      body: 'الكابتن ${data['driverName'] ?? ''} قدم عرضاً بقيمة ${data['offerAmount'] ?? ''} ج.م',
+      body: 'الكابتن $driverName قدم عرضاً بقيمة $offerAmount ج.م',
     );
+
+    if (mounted) {
+      setState(() {
+        final existingIdx = _tripOffers.indexWhere(
+          (o) => o is Map && o['driverId']?.toString() == data['driverId']?.toString(),
+        );
+        if (existingIdx >= 0) {
+          _tripOffers[existingIdx] = Map<String, dynamic>.from(data);
+        } else {
+          _tripOffers.add(Map<String, dynamic>.from(data));
+        }
+      });
+    }
+
     _loadOrder(silent: true);
   }
 
