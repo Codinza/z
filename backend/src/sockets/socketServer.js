@@ -23,14 +23,9 @@ export function initSocketServer(io) {
       onlineDrivers.set(socket.id, driverId);
       logger.info('Driver is now online', { driverId, onlineCount: onlineDrivers.size });
       io.emit('driver:status', { driverId, ready: true, onlineCount: onlineDrivers.size });
+      // Sync pending rides as a batch without triggering individual trip_request alert storms
       const pendingRides = await getPendingRides();
-      for (const ride of pendingRides) {
-        socket.emit('trip_request', {
-          ...ride,
-          rideId: ride.id,
-          status: ride.status || 'pending',
-        });
-      }
+      socket.emit('pending_rides_sync', pendingRides);
     });
 
     socket.on('driver_location_update', (data) => {
