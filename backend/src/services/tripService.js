@@ -530,63 +530,80 @@ class TripService {
   }
 
   async submitDriverOffer(rideId, driverId, offerAmount, driverName, driverPhone) {
-    const ride = rides.get(rideId);
-    if (!ride) throw new Error('Ride not found');
-    if (ride.status !== 'pending') throw new Error('This ride is no longer accepting offers');
-
-    // Check if driver already has an active trip - prevent offering while on a ride
-    const allRides = Array.from(rides.values());
-    const activeTrip = allRides.find(r => 
-      r.driverId === driverId && 
-      ['accepted', 'driver_arriving', 'driver_arrived', 'started'].includes(r.status)
-    );
-    if (activeTrip) {
-      throw new Error('You already have an active trip. Complete it before sending new offers.');
+    let ride = rides.get(rideId);
+    if (!ride) {
+      const stored = await tripRepository.getTripById(rideId);
+      if (stored) {
+        ride = {
+          ...stored,
+          offers: [],
+        };
+        rides.set(rideId, ride);
+      }
     }
+    if (!ride) throw new Error('الرحلة غير موجودة أو انتهت');
+    if (ride.status !== 'pending') throw new Error('هذه الرحلة لم تعد تقبل عروض أسعار');
 
-    // Check if driver already sent an offer for this ride
-    if (ride.offers && ride.offers.some(o => o.driverId === driverId)) {
-      throw new Error('You already sent an offer for this ride.');
-    }
-    
-    // Check wallet
+    // Check wallet balance
     try {
       const { driverService } = await import('./driverService.js');
       const walletInfo = await driverService.getDriverWallet(driverId);
       if (walletInfo.walletBalance <= -50) {
-        throw new Error('Wallet balance too low. Please recharge.');
+        throw new Error('رصيد المحفظة منخفض جداً. يرجى الشحن أولاً.');
       }
     } catch (e) {
-      if (e.message.includes('Wallet balance too low')) throw e;
+      if (e.message && e.message.includes('رصيد المحفظة')) throw e;
     }
 
-    // Store driver offer
     if (!ride.offers) {
       ride.offers = [];
     }
 
-    const offer = {
-      driverId,
-      driverName: driverName || 'سائق',
-      driverPhone: driverPhone || '',
-      offerAmount,
-      status: 'pending',
-      timestamp: new Date().toISOString(),
-    };
+    // Check if driver already sent an offer - if so, update it instead of failing
+    const existingIndex = ride.offers.findIndex(o => o.driverId === driverId);
+    let offer;
+    if (existingIndex !== -1) {
+      ride.offers[existingIndex].offerAmount = offerAmount;
+      ride.offers[existingIndex].timestamp = new Date().toISOString();
+      if (driverName) ride.offers[existingIndex].driverName = driverName;
+      if (driverPhone) ride.offers[existingIndex].driverPhone = driverPhone;
+      offer = ride.offers[existingIndex];
+    } else {
+      offer = {
+        driverId,
+        driverName: driverName || 'كابتن زوون',
+        driverPhone: driverPhone || '',
+        offerAmount,
+        status: 'pending',
+        timestamp: new Date().toISOString(),
+      };
+      ride.offers.push(offer);
+    }
 
-    ride.offers.push(offer);
     ride.updatedAt = new Date().toISOString();
 
-    // Emit offer to customer via socket
+    // Emit offer to customer via socket across all channels
     if (io) {
-      io.emit('driver_offer', {
+      const offerPayload = {
         rideId,
+        tripId: rideId,
+        orderId: rideId,
         driverId,
         driverName: offer.driverName,
-        offerAmount,
+        driverPhone: offer.driverPhone,
+        offerAmount: offer.offerAmount,
+        price: offer.offerAmount,
         offersCount: ride.offers.length,
         timestamp: offer.timestamp,
-      });
+        status: 'pending',
+      };
+
+      io.emit('driver_offer', offerPayload);
+      if (ride.userId) {
+        io.to(`user_${ride.userId}`).emit('driver_offer', offerPayload);
+      }
+      io.to(`trip_${rideId}`).emit('driver_offer', offerPayload);
+      io.to(rideId).emit('driver_offer', offerPayload);
     }
 
     return { ride, offer };
@@ -594,14 +611,27 @@ class TripService {
 
   // Get all offers for a specific trip (for customer to see)
   async getTripOffers(rideId) {
-    const ride = rides.get(rideId);
-    if (!ride) throw new Error('Ride not found');
-    return ride.offers || [];
+    let ride = rides.get(rideId);
+    if (!ride) {
+      const stored = await tripRepository.getTripById(rideId);
+      if (stored) {
+        ride = { ...stored, offers: [] };
+        rides.set(rideId, ride);
+      }
+    }
+    return ride ? (ride.offers || []) : [];
   }
 
   // Customer accepts a specific driver's offer
   async acceptDriverOffer(rideId, driverId) {
-    const ride = rides.get(rideId);
+    let ride = rides.get(rideId);
+    if (!ride) {
+      const stored = await tripRepository.getTripById(rideId);
+      if (stored) {
+        ride = { ...stored, offers: [] };
+        rides.set(rideId, ride);
+      }
+    }
     if (!ride) throw new Error('Ride not found');
     if (ride.status !== 'pending') throw new Error('This ride is no longer pending');
 
@@ -621,6 +651,26 @@ class TripService {
     ride.fareEstimate = offer.offerAmount;
     ride.updatedAt = new Date().toISOString();
 
+    // Also persist status update in PostgreSQL
+    try {
+      await tripRepository.updateTripStatus(rideId, 'accepted', driverId);
+    } catch (_) {}
+
+    // Resolve real customer phone and name for driver
+    if ((!ride.userPhone || ride.userName === 'User Dummy') && ride.userId) {
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: ride.userId },
+          select: { name: true, phone: true, profileImage: true },
+        });
+        if (user) {
+          if (user.phone) ride.userPhone = user.phone;
+          if (user.name) ride.userName = user.name;
+          if (user.profileImage) ride.customerImageUrl = user.profileImage;
+        }
+      } catch (_) {}
+    }
+
     // Create assignment
     const assignment = {
       id: `assignment_${Date.now()}`,
@@ -636,6 +686,7 @@ class TripService {
     if (io) {
       const offerAcceptedPayload = {
         rideId,
+        tripId: rideId,
         status: 'accepted',
         driverId,
         customerName: ride.userName,
@@ -651,9 +702,10 @@ class TripService {
       io.to(`driver:${driverId}`).emit('offer_accepted', offerAcceptedPayload);
       io.emit('offer_accepted', offerAcceptedPayload);
 
-      // Notify ALL clients that this trip is taken (so other drivers remove it)
+      // Notify ALL clients that this trip is taken
       io.emit('trip_status_changed', {
         rideId,
+        tripId: rideId,
         status: 'accepted',
         driverId,
         customerName: ride.userName,
