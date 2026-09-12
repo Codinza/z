@@ -142,35 +142,72 @@ class DriverService {
   }
 
   async getDriverHistory(id) {
+    let driver = null;
+    try {
+      driver = await prisma.driver.findFirst({
+        where: {
+          OR: [{ id }, { userId: id }],
+        },
+      });
+    } catch (_) {}
+
+    const driverDbId = driver?.id ?? id;
+    const driverUserId = driver?.userId ?? id;
+
     const { rides } = await import('./tripService.js');
     const memoryHistory = Array.from(rides.values())
-      .filter((ride) => (ride.driverId === id) &&
-        (ride.status === 'completed' || ride.status === 'cancelled'));
+      .filter((ride) => (
+        ride.driverId === id ||
+        ride.driverId === driverDbId ||
+        ride.driverId === driverUserId
+      ) && (ride.status === 'completed' || ride.status === 'cancelled'));
 
     let databaseHistory = [];
     try {
-      databaseHistory = await tripRepository.listTripsByDriver(id);
+      databaseHistory = await tripRepository.listTripsByDriver(driverDbId);
+      if (driverUserId !== driverDbId) {
+        const userTrips = await tripRepository.listTripsByDriver(driverUserId);
+        for (const ut of userTrips) {
+          if (!databaseHistory.some((dt) => dt.id === ut.id)) {
+            databaseHistory.push(ut);
+          }
+        }
+      }
     } catch (_) {}
 
-    return [
-      ...memoryHistory,
-      ...databaseHistory.map((trip) => {
-        const rating = trip.ratings?.[0]
-          ? {
-              score: trip.ratings[0].score,
-              comment: trip.ratings[0].comment,
-              createdAt: trip.ratings[0].createdAt,
-            }
-          : trip.rating || null;
+    // Combine and deduplicate
+    const combinedMap = new Map();
 
-        return {
-          ...trip,
-          rating,
-          userName: trip.user?.name ?? 'عميل',
-          userPhone: trip.user?.phone,
-        };
-      }),
-    ];
+    for (const trip of databaseHistory) {
+      const rating = trip.ratings?.[0]
+        ? {
+            score: trip.ratings[0].score,
+            comment: trip.ratings[0].comment,
+            createdAt: trip.ratings[0].createdAt,
+          }
+        : trip.rating || null;
+
+      combinedMap.set(trip.id, {
+        ...trip,
+        rating,
+        userName: trip.user?.name ?? 'عميل زوون',
+        userPhone: trip.user?.phone ?? null,
+      });
+    }
+
+    for (const ride of memoryHistory) {
+      if (!combinedMap.has(ride.id)) {
+        combinedMap.set(ride.id, {
+          ...ride,
+          userName: ride.userName || 'عميل زوون',
+          userPhone: ride.userPhone || null,
+        });
+      }
+    }
+
+    return Array.from(combinedMap.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   }
 
   async getDriverRatings(id) {

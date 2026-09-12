@@ -474,12 +474,30 @@ class TripService {
   }
 
   async completeTrip(rideId) {
-    const ride = rides.get(rideId);
-    const assignment = assignments.get(rideId);
-    if (!ride || !assignment) throw new Error('Ride or assignment not found');
+    let ride = rides.get(rideId);
+    if (!ride) {
+      const stored = await tripRepository.getTripById(rideId);
+      if (stored) {
+        ride = { ...stored };
+        rides.set(rideId, ride);
+      }
+    }
+    if (!ride) throw new Error('Ride not found');
+
+    let assignment = assignments.get(rideId);
+    if (!assignment) {
+      assignment = {
+        id: `assignment_${Date.now()}`,
+        rideRequestId: rideId,
+        driverId: ride.driverId || 'driver_dummy_001',
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      };
+      assignments.set(rideId, assignment);
+    }
 
     ride.status = 'completed';
-    ride.finalFare = Number((ride.fareEstimate + 5).toFixed(2));
+    ride.finalFare = Number((ride.finalFare || ride.fareEstimate || 50).toFixed(2));
     ride.updatedAt = new Date().toISOString();
     assignment.status = 'completed';
     assignment.completedAt = new Date().toISOString();
@@ -491,26 +509,33 @@ class TripService {
     }
 
     try {
-      await tripRepository.updateAssignment(rideId, {
-        status: assignment.status,
-        completedAt: new Date(assignment.completedAt),
-      });
-
+      await tripRepository.updateTripStatus(rideId, 'completed', ride.driverId, ride.finalFare);
       await driverRepository.updateDriverAvailability(assignment.driverId, { isAvailable: true });
       
       // Deduct 10% commission from driver wallet
-      const commission = ride.finalFare * 0.10;
-      await driverRepository.updateDriverWallet(assignment.driverId, -commission);
+      try {
+        const commission = ride.finalFare * 0.10;
+        await driverRepository.updateDriverWallet(assignment.driverId, -commission);
+      } catch (_) {}
     } catch (error) {
-      logger.warn('Trip completion update skipped because Prisma storage is unavailable', { error: error.message });
+      logger.warn('Trip completion DB update skipped: ' + error.message);
     }
 
     if (io) {
-      io.emit('trip_status_changed', {
+      const completionPayload = {
         rideId,
+        tripId: rideId,
         status: ride.status,
         driverId: ride.driverId,
-      });
+        finalFare: ride.finalFare,
+      };
+      io.emit('trip_status_changed', completionPayload);
+      if (ride.userId) {
+        io.to(`user_${ride.userId}`).emit('trip_status_changed', completionPayload);
+      }
+      if (ride.driverId) {
+        io.to(`driver_${ride.driverId}`).emit('trip_status_changed', completionPayload);
+      }
     }
 
     return { ride, assignment };
@@ -764,6 +789,7 @@ class TripService {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    assignments.set(rideId, assignment);
 
     // Notify the accepted driver
     if (io) {

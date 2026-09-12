@@ -55,6 +55,17 @@ class TripRepository {
       data,
     });
   }
+
+  async updateTripStatus(id, status, driverId = null, finalFare = null) {
+    const data = { status };
+    if (driverId) data.driverId = driverId;
+    if (finalFare !== null && finalFare !== undefined) data.finalFare = Number(finalFare);
+
+    return prisma.trip.update({
+      where: { id },
+      data,
+    });
+  }
 }
 
 export const tripRepository = new TripRepository();
