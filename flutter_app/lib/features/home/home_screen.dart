@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -16,19 +17,25 @@ import '../../core/network/api_client.dart';
 import '../../core/config/app_config.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/location_service.dart';
+import '../../core/services/location_deep_link_service.dart';
 import '../notifications/notifications_screen.dart';
 import '../auth/auth_service.dart';
 import 'order_tracking_screen.dart';
 import 'customer_drawer.dart';
+import '../../core/widgets/animations/zoon_animations.dart';
 
 class HomeScreen extends StatefulWidget {
   final String initialService;
   final bool showServiceSelector;
+  final String? initialPickupAddress;
+  final String? initialDropoffAddress;
 
   const HomeScreen({
     super.key,
     this.initialService = 'limousine',
     this.showServiceSelector = true,
+    this.initialPickupAddress,
+    this.initialDropoffAddress,
   });
 
   @override
@@ -37,7 +44,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final flutter_map.MapController _flutterMapController = flutter_map.MapController();
+  final flutter_map.MapController _flutterMapController =
+      flutter_map.MapController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _pickupController = TextEditingController();
@@ -50,11 +58,16 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _currentOrderId;
   bool? _currentOrderIsTrip;
   bool _isRequestingOrder = false;
+  bool _isConfirmingDestination = false;
   String _shipmentType = 'طرد';
   String _shipmentSize = 'متوسطة';
   XFile? _shipmentImage;
   DateTime? _shippingDateTime;
   socket_io.Socket? _socket;
+  StreamSubscription<latlong.LatLng>? _sharedLocationSubscription;
+  Timer? _destinationSearchTimer;
+  List<Map<String, dynamic>> _destinationSuggestions = [];
+  bool _isSearchingDestination = false;
 
   late String _selectedService;
   static const latlong.LatLng _defaultLocation = latlong.LatLng(30.78, 29.65);
@@ -69,14 +82,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   double get _minAllowedPrice {
     if (_baseEstimatedPrice == null) return _minBaseFare;
-    final discounted = (_baseEstimatedPrice! * (1.0 - _maxDiscountRatio)).roundToDouble();
+    final discounted =
+        (_baseEstimatedPrice! * (1.0 - _maxDiscountRatio)).roundToDouble();
     return discounted < _minBaseFare ? _minBaseFare : discounted;
   }
 
   void _calculateFareFromDistance(double distanceKm) {
     if (!mounted) return;
     final rawFare = distanceKm * _pricePerKm;
-    final fare = (rawFare < _minBaseFare ? _minBaseFare : rawFare).roundToDouble();
+    final fare =
+        (rawFare < _minBaseFare ? _minBaseFare : rawFare).roundToDouble();
     setState(() {
       _estimatedDistanceKm = distanceKm;
       _baseEstimatedPrice = fare;
@@ -85,7 +100,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _increasePrice([double step = 5.0]) {
-    final current = double.tryParse(_priceController.text) ?? (_baseEstimatedPrice ?? 50.0);
+    final current =
+        double.tryParse(_priceController.text) ?? (_baseEstimatedPrice ?? 50.0);
     final next = (current + step).roundToDouble();
     setState(() {
       _priceController.text = next.toInt().toString();
@@ -93,7 +109,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _decreasePrice([double step = 5.0]) {
-    final current = double.tryParse(_priceController.text) ?? (_baseEstimatedPrice ?? 50.0);
+    final current =
+        double.tryParse(_priceController.text) ?? (_baseEstimatedPrice ?? 50.0);
     final minLimit = _minAllowedPrice;
     final next = (current - step).roundToDouble();
     if (next < minLimit) {
@@ -121,8 +138,37 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _selectedService = widget.initialService;
     _initSocket();
-    _determineLocation();
+    _determineLocation().then((_) async {
+      if (!mounted) return;
+      if (widget.initialPickupAddress?.isNotEmpty == true) {
+        _pickupController.text = widget.initialPickupAddress!;
+      }
+      await _applySharedLocation();
+    });
+    if (widget.initialPickupAddress?.isNotEmpty == true) {
+      _pickupController.text = widget.initialPickupAddress!;
+    }
+    if (widget.initialDropoffAddress?.isNotEmpty == true) {
+      _dropoffController.text = widget.initialDropoffAddress!;
+    }
+    _sharedLocationSubscription =
+        LocationDeepLinkService.instance.locations.listen(_applySharedLocation);
     _loadCurrentOrder();
+  }
+
+  Future<void> _applySharedLocation([latlong.LatLng? sharedLocation]) async {
+    final location =
+        sharedLocation ?? LocationDeepLinkService.instance.consumeLocation();
+    if (location == null || !mounted) return;
+
+    // A location shared from WhatsApp is the requested destination.
+    await _selectDestination(location);
+    if (mounted) {
+      setState(() => _isConfirmingDestination = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تحديد اللوكيشن كوجهة للرحلة')),
+      );
+    }
   }
 
   Future<void> _loadCurrentOrder() async {
@@ -149,20 +195,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _clearCurrentOrder() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('current_order_id');
-    await prefs.remove('current_order_is_trip');
-    if (mounted) {
-      setState(() {
-        _currentOrderId = null;
-        _currentOrderIsTrip = null;
-      });
-    }
-  }
-
   Future<void> _selectDestination(latlong.LatLng destination) async {
     final origin = _currentLocation;
+    if (!_isWithinEgypt(destination) ||
+        (origin != null && !_isWithinEgypt(origin))) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('الخدمة متاحة داخل مصر فقط')),
+        );
+      }
+      return;
+    }
     setState(() {
       _destinationLocation = destination;
       _dropoffController.text = 'جاري تحديد العنوان...';
@@ -220,6 +263,15 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
+  bool _isWithinEgypt(latlong.LatLng point) {
+    return point.latitude >= 22 &&
+        point.latitude <= 31.7 &&
+        point.longitude >= 24 &&
+        point.longitude <= 37;
+  }
+
+  // Kept for compatibility with older callers.
+  // ignore: unused_element
   Widget _buildServiceCard({
     required String service,
     required String title,
@@ -243,9 +295,7 @@ class _HomeScreenState extends State<HomeScreen> {
           color: selected ? const Color(0xff111315) : const Color(0xff111315),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected
-                ? const Color(0xffF97316)
-                : const Color(0xff2A2D33),
+            color: selected ? const Color(0xffF97316) : const Color(0xff2A2D33),
             width: selected ? 1.5 : 1.0,
           ),
           boxShadow: [
@@ -324,6 +374,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _sharedLocationSubscription?.cancel();
+    _destinationSearchTimer?.cancel();
     _priceController.dispose();
     _notesController.dispose();
     _pickupController.dispose();
@@ -354,9 +406,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (status == 'PRICE_SENT') {
         NotificationService().showNotification(
           title: 'عرض سعر جديد لشحنتك! 🏷️',
-          body: price != null ? 'وصلك عرض سعر جديد بقيمة $price ج.م' : 'وصلك عرض سعر جديد لطلب الشحن',
+          body: price != null
+              ? 'وصلك عرض سعر جديد بقيمة $price ج.م'
+              : 'وصلك عرض سعر جديد لطلب الشحن',
         );
-      } else if (status == 'COMPANY_ACCEPTED' || status == 'CONFIRMED' || status == 'CUSTOMER_APPROVED') {
+      } else if (status == 'COMPANY_ACCEPTED' ||
+          status == 'CONFIRMED' ||
+          status == 'CUSTOMER_APPROVED') {
         NotificationService().showNotification(
           title: 'تم تأكيد طلب الشحن! 🚚',
           body: 'وافقت شركة الشحن على طلبك وجاري تحضير الشحن والتوصيل.',
@@ -467,9 +523,11 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (_destinationLocation == null && _dropoffController.text.trim().isEmpty) {
+    if (_destinationLocation == null &&
+        _dropoffController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('برجاء تحديد الوجهة على الخريطة أو كتابة العنوان')),
+        const SnackBar(
+            content: Text('برجاء تحديد الوجهة على الخريطة أو كتابة العنوان')),
       );
       return;
     }
@@ -526,8 +584,7 @@ class _HomeScreenState extends State<HomeScreen> {
             'customerPhone': customerPhone,
           if (customerName != null && customerName.isNotEmpty)
             'customerName': customerName,
-          if (userId != null && userId.isNotEmpty)
-            'userId': userId,
+          if (userId != null && userId.isNotEmpty) 'userId': userId,
         },
       );
 
@@ -538,21 +595,27 @@ class _HomeScreenState extends State<HomeScreen> {
           _currentOrderId = tripId;
           _isRequestingOrder = false;
         });
-        await _saveCurrentOrder(tripId);
+        await _saveCurrentOrder(tripId, isTrip: true);
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('تم إرسال الطلب للسواقين! انتظر العروض...')),
-          );
           _resetForm();
-          Navigator.push(
+          ZoonOrderSuccessModal.show(
             context,
-            MaterialPageRoute(
-              builder: (context) => OrderTrackingScreen(
-                orderId: tripId,
-                isTrip: true,
-              ),
-            ),
+            title: 'تم إرسال الطلب بنجاح! 🎉',
+            message:
+                'تم إرسال طلبك إلى الكباتن المعتمدين القريبين منك، وستبدأ العروض في الوصول فوراً.',
+            orderId: tripId,
+            onTrackOrder: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => OrderTrackingScreen(
+                    orderId: tripId,
+                    isTrip: true,
+                  ),
+                ),
+              );
+            },
           );
         }
       } else {
@@ -599,6 +662,65 @@ class _HomeScreenState extends State<HomeScreen> {
       options: Options(headers: {'User-Agent': 'RideFlow/1.0'}),
     );
     return response.data['display_name'] as String?;
+  }
+
+  void _searchDestinations(String query) {
+    _destinationSearchTimer?.cancel();
+    if (query.trim().length < 3) {
+      setState(() => _destinationSuggestions = []);
+      return;
+    }
+
+    _destinationSearchTimer =
+        Timer(const Duration(milliseconds: 450), () async {
+      if (!mounted) return;
+      setState(() => _isSearchingDestination = true);
+      try {
+        final response = await Dio().get(
+          'https://nominatim.openstreetmap.org/search',
+          queryParameters: {
+            'q': query.trim(),
+            'format': 'jsonv2',
+            'limit': 5,
+            'addressdetails': 1,
+            'accept-language': 'ar',
+            'countrycodes': 'eg',
+          },
+          options: Options(headers: {'User-Agent': 'Zoon/1.0'}),
+        );
+        final results = response.data is List
+            ? response.data
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .where((item) => _isWithinEgypt(latlong.LatLng(
+                      double.tryParse(item['lat']?.toString() ?? '') ?? 0,
+                      double.tryParse(item['lon']?.toString() ?? '') ?? 0,
+                    )))
+                .toList()
+            : <Map<String, dynamic>>[];
+        if (mounted && _dropoffController.text.trim() == query.trim()) {
+          setState(() => _destinationSuggestions = results);
+        }
+      } catch (_) {
+        if (mounted) setState(() => _destinationSuggestions = []);
+      } finally {
+        if (mounted) setState(() => _isSearchingDestination = false);
+      }
+    });
+  }
+
+  Future<void> _chooseDestinationSuggestion(
+      Map<String, dynamic> suggestion) async {
+    final latitude = double.tryParse(suggestion['lat']?.toString() ?? '');
+    final longitude = double.tryParse(suggestion['lon']?.toString() ?? '');
+    if (latitude == null || longitude == null) return;
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _destinationSuggestions = [];
+      _isConfirmingDestination = true;
+    });
+    await _selectDestination(latlong.LatLng(latitude, longitude));
   }
 
   Future<void> _requestShipping() async {
@@ -657,11 +779,16 @@ class _HomeScreenState extends State<HomeScreen> {
           'shipmentType': _shipmentType,
           'shippingSize': _shipmentSize,
           if (_shipmentImage != null)
-            'shippingImageBase64': base64Encode(await _shipmentImage!.readAsBytes()),
+            'shippingImageBase64':
+                base64Encode(await _shipmentImage!.readAsBytes()),
           if (_shippingDateTime != null)
             'date': _shippingDateTime!.toIso8601String().split('T').first,
           if (_shippingDateTime != null)
-            'time': _shippingDateTime!.toIso8601String().split('T').last.substring(0, 5),
+            'time': _shippingDateTime!
+                .toIso8601String()
+                .split('T')
+                .last
+                .substring(0, 5),
           'offerPrice': double.parse(_priceController.text),
         },
       );
@@ -675,18 +802,24 @@ class _HomeScreenState extends State<HomeScreen> {
         await _saveCurrentOrder(_currentOrderId!);
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('تم إنشاء طلب الشحن بنجاح!')),
-          );
           _resetForm();
-          Navigator.push(
+          ZoonOrderSuccessModal.show(
             context,
-            MaterialPageRoute(
-              builder: (context) => OrderTrackingScreen(
-                orderId: data['order']['id'],
-                isTrip: false,
-              ),
-            ),
+            title: 'تم إنشاء طلب الشحن بنجاح! 📦',
+            message:
+                'تم تعميم شحنتك على شركات الشحن والكباتن المعتمدين لموافقة وتجهيز أسرع.',
+            orderId: data['order']['id'],
+            onTrackOrder: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => OrderTrackingScreen(
+                    orderId: data['order']['id'],
+                    isTrip: false,
+                  ),
+                ),
+              );
+            },
           );
         }
       } else {
@@ -751,6 +884,17 @@ class _HomeScreenState extends State<HomeScreen> {
       final location = latlong.LatLng(position.latitude, position.longitude);
 
       if (!mounted) return;
+
+      if (!_isWithinEgypt(location)) {
+        setState(() {
+          _isLocating = false;
+          _currentLocation = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('الخدمة متاحة داخل مصر فقط')),
+        );
+        return;
+      }
 
       setState(() {
         _currentLocation = location;
@@ -885,44 +1029,44 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _buildMapLayer(displayLocation),
             ),
 
-            // Top gradient overlay for contrast with floating header
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 120,
-              child: IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xff0B0E14).withOpacity(0.85),
-                        const Color(0xff0B0E14).withOpacity(0.0),
-                      ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+            if (!_isConfirmingDestination) ...[
+              // Top gradient overlay for contrast with floating header
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 120,
+                child: IgnorePointer(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xff0B0E14).withOpacity(0.85),
+                          const Color(0xff0B0E14).withOpacity(0.0),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
 
-            // ── 2. Top Floating Header ──
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                bottom: false,
-                child: _buildTopFloatingHeader(),
+              // Top floating header
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: _buildTopFloatingHeader(),
+                ),
               ),
-            ),
 
-            // ── 3. Floating Map Controls ──
-            _buildFloatingMapControls(),
-
-            // ── 4. Premium Services Bottom Sheet ──
-            _buildBottomSheet(),
+              _buildFloatingMapControls(),
+              _buildBottomSheet(),
+            ] else
+              _buildConfirmDestinationButton(),
           ],
         ),
       ),
@@ -949,13 +1093,14 @@ class _HomeScreenState extends State<HomeScreen> {
         initialCenter: displayLocation,
         initialZoom: _currentLocation != null ? 15 : 13,
         onTap: (tapPosition, point) {
+          setState(() => _isConfirmingDestination = true);
           _selectDestination(point);
         },
       ),
       children: [
         flutter_map.TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.zoon.app',
+          userAgentPackageName: 'com.zoon.app',
           tileProvider: CancellableNetworkTileProvider(),
         ),
         if (_routePoints.length > 1) ...[
@@ -1145,20 +1290,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
-            child: _isLocating
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
+              child: _isLocating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Color(0xffF97316),
+                        strokeWidth: 2.2,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.my_location_rounded,
+                      size: 22,
                       color: Color(0xffF97316),
-                      strokeWidth: 2.2,
                     ),
-                  )
-                : const Icon(
-                    Icons.my_location_rounded,
-                    size: 22,
-                    color: Color(0xffF97316),
-                  ),
             ),
           ),
           if (_destinationLocation != null) ...[
@@ -1167,6 +1312,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onTap: () {
                 setState(() {
                   _destinationLocation = null;
+                  _isConfirmingDestination = false;
                   _routePoints = [];
                   _dropoffController.clear();
                   _estimatedDistanceKm = null;
@@ -1201,6 +1347,36 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildConfirmDestinationButton() {
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: 20,
+      child: SafeArea(
+        top: false,
+        child: ElevatedButton.icon(
+          onPressed: () {
+            setState(() => _isConfirmingDestination = false);
+          },
+          icon: const Icon(Icons.check_circle_rounded),
+          label: const Text(
+            'تم تأكيد الوجهة',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xff10B981),
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(54),
+            elevation: 8,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1309,6 +1485,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 18),
 
+              _buildDestinationSearchBox(),
+              const SizedBox(height: 12),
+
               // BOOKING FORM SECTION
               _buildBookingForm(isLimousine),
             ],
@@ -1383,7 +1562,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isTrip ? 'رحلتك الحالية قيد التنفيذ' : 'شحنتك الحالية قيد المتابعة',
+                    isTrip
+                        ? 'رحلتك الحالية قيد التنفيذ'
+                        : 'شحنتك الحالية قيد المتابعة',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 14,
@@ -1409,6 +1590,82 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildDestinationSearchBox() {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xff1A1D21),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xff2A3342), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.search_rounded,
+                  color: Color(0xffF97316), size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _dropoffController,
+                  onChanged: _searchDestinations,
+                  style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    border: InputBorder.none,
+                    hintText: 'ابحث عن وجهتك',
+                    hintStyle:
+                        TextStyle(color: Color(0xffF97316), fontSize: 13),
+                  ),
+                ),
+              ),
+              if (_isSearchingDestination)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xffF97316),
+                  ),
+                ),
+            ],
+          ),
+          if (_destinationSuggestions.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xff11141A),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xff2A3342)),
+              ),
+              child: Column(
+                children: _destinationSuggestions.map((suggestion) {
+                  final displayName =
+                      suggestion['display_name']?.toString() ?? '';
+                  return ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.location_on_outlined,
+                        color: Color(0xffF97316)),
+                    title: Text(
+                      displayName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 12.5),
+                    ),
+                    onTap: () => _chooseDestinationSuggestion(suggestion),
+                  );
+                }).toList(),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1440,7 +1697,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? const Color(0xffF97316) : const Color(0xff252E3E),
+            color:
+                isSelected ? const Color(0xffF97316) : const Color(0xff252E3E),
             width: isSelected ? 1.8 : 1.0,
           ),
           boxShadow: [
@@ -1498,7 +1756,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
                         decoration: BoxDecoration(
                           color: const Color(0xffF97316).withOpacity(0.2),
                           borderRadius: BorderRadius.circular(8),
@@ -1531,15 +1790,19 @@ class _HomeScreenState extends State<HomeScreen> {
               width: 26,
               height: 26,
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xffF97316) : Colors.transparent,
+                color:
+                    isSelected ? const Color(0xffF97316) : Colors.transparent,
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isSelected ? const Color(0xffF97316) : const Color(0xff475569),
+                  color: isSelected
+                      ? const Color(0xffF97316)
+                      : const Color(0xff475569),
                   width: 1.8,
                 ),
               ),
               child: isSelected
-                  ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
+                  ? const Icon(Icons.check_rounded,
+                      color: Colors.white, size: 16)
                   : null,
             ),
           ],
@@ -1578,7 +1841,8 @@ class _HomeScreenState extends State<HomeScreen> {
               : const Color(0xff161B24),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? const Color(0xffF97316) : const Color(0xff252E3E),
+            color:
+                isSelected ? const Color(0xffF97316) : const Color(0xff252E3E),
             width: isSelected ? 1.5 : 1.0,
           ),
         ),
@@ -1599,13 +1863,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   child: Icon(
                     icon,
-                    color: isSelected ? const Color(0xffF97316) : const Color(0xff94A3B8),
+                    color: isSelected
+                        ? const Color(0xffF97316)
+                        : const Color(0xff94A3B8),
                     size: 20,
                   ),
                 ),
                 if (isComingSoon)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(6),
@@ -1630,7 +1897,9 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(
               subtitle,
               style: TextStyle(
-                color: isSelected ? const Color(0xffF97316) : const Color(0xff64748B),
+                color: isSelected
+                    ? const Color(0xffF97316)
+                    : const Color(0xff64748B),
                 fontSize: 10.5,
                 fontWeight: FontWeight.w500,
               ),
@@ -1672,19 +1941,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   Expanded(
                     child: TextField(
                       controller: _pickupController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 13.5),
                       decoration: const InputDecoration(
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(vertical: 8),
                         border: InputBorder.none,
                         hintText: 'موقع الاستلام (موقعك الحالي)',
-                        hintStyle: TextStyle(color: Color(0xff64748B), fontSize: 13),
+                        hintStyle:
+                            TextStyle(color: Color(0xff64748B), fontSize: 13),
                       ),
                     ),
                   ),
                 ],
               ),
-              const Divider(color: Color(0xff252E3E), height: 16),
+              const SizedBox(height: 12),
               // Dropoff
               Row(
                 children: [
@@ -1692,7 +1963,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     width: 10,
                     height: 10,
                     decoration: const BoxDecoration(
-                      color: Color(0xffEF4444),
+                      color: Color(0xffF97316),
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -1700,13 +1971,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   Expanded(
                     child: TextField(
                       controller: _dropoffController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 13.5),
                       decoration: const InputDecoration(
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(vertical: 8),
                         border: InputBorder.none,
-                        hintText: 'حدد الوجهة (انقر على الخريطة أو اكتب هنا)',
-                        hintStyle: TextStyle(color: Color(0xffF97316), fontSize: 13),
+                        hintText: 'مكان الوصول',
+                        hintStyle:
+                            TextStyle(color: Color(0xff64748B), fontSize: 13),
                       ),
                     ),
                   ),
@@ -1730,10 +2003,19 @@ class _HomeScreenState extends State<HomeScreen> {
               prefixIcon: Icons.inventory_2_outlined,
             ),
             items: const [
-              DropdownMenuItem(value: 'طرد', child: Text('طرد', style: TextStyle(color: Colors.white))),
-              DropdownMenuItem(value: 'مستندات', child: Text('مستندات', style: TextStyle(color: Colors.white))),
-              DropdownMenuItem(value: 'ظرف', child: Text('ظرف', style: TextStyle(color: Colors.white))),
-              DropdownMenuItem(value: 'أخرى', child: Text('أخرى', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(
+                  value: 'طرد',
+                  child: Text('طرد', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(
+                  value: 'مستندات',
+                  child:
+                      Text('مستندات', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(
+                  value: 'ظرف',
+                  child: Text('ظرف', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(
+                  value: 'أخرى',
+                  child: Text('أخرى', style: TextStyle(color: Colors.white))),
             ],
             onChanged: (value) {
               if (value != null) setState(() => _shipmentType = value);
@@ -1751,9 +2033,15 @@ class _HomeScreenState extends State<HomeScreen> {
               prefixIcon: Icons.straighten_outlined,
             ),
             items: const [
-              DropdownMenuItem(value: 'صغيرة', child: Text('صغيرة', style: TextStyle(color: Colors.white))),
-              DropdownMenuItem(value: 'متوسطة', child: Text('متوسطة', style: TextStyle(color: Colors.white))),
-              DropdownMenuItem(value: 'كبيرة', child: Text('كبيرة', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(
+                  value: 'صغيرة',
+                  child: Text('صغيرة', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(
+                  value: 'متوسطة',
+                  child: Text('متوسطة', style: TextStyle(color: Colors.white))),
+              DropdownMenuItem(
+                  value: 'كبيرة',
+                  child: Text('كبيرة', style: TextStyle(color: Colors.white))),
             ],
             onChanged: (value) {
               if (value != null) setState(() => _shipmentSize = value);
@@ -1766,19 +2054,24 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _pickShippingDateTime,
-                  icon: const Icon(Icons.event_outlined, size: 18, color: Color(0xffF97316)),
+                  icon: const Icon(Icons.event_outlined,
+                      size: 18, color: Color(0xffF97316)),
                   label: Text(
                     _shippingDateTime == null
                         ? 'موعد الاستلام'
                         : '${_shippingDateTime!.day}/${_shippingDateTime!.month} ${_shippingDateTime!.hour}:${_shippingDateTime!.minute.toString().padLeft(2, '0')}',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white),
                     overflow: TextOverflow.ellipsis,
                   ),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
                     backgroundColor: const Color(0xff161B24),
                     side: const BorderSide(color: Color(0xff252E3E)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
               ),
@@ -1787,16 +2080,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: OutlinedButton.icon(
                   onPressed: _pickShipmentImage,
                   icon: Icon(
-                    _shipmentImage == null ? Icons.add_a_photo_outlined : Icons.check_circle_outline,
+                    _shipmentImage == null
+                        ? Icons.add_a_photo_outlined
+                        : Icons.check_circle_outline,
                     size: 18,
-                    color: _shipmentImage == null ? const Color(0xffF97316) : Colors.greenAccent,
+                    color: _shipmentImage == null
+                        ? const Color(0xffF97316)
+                        : Colors.greenAccent,
                   ),
                   label: Text(
                     _shipmentImage == null ? 'إرفاق صورة' : 'تمت الإضافة',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: _shipmentImage == null ? Colors.white : Colors.greenAccent,
+                      color: _shipmentImage == null
+                          ? Colors.white
+                          : Colors.greenAccent,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1804,7 +2103,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     minimumSize: const Size.fromHeight(48),
                     backgroundColor: const Color(0xff161B24),
                     side: const BorderSide(color: Color(0xff252E3E)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
               ),
@@ -1821,7 +2121,8 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: const Color(0xff161B24),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xffF97316).withOpacity(0.35)),
+              border:
+                  Border.all(color: const Color(0xffF97316).withOpacity(0.35)),
             ),
             child: Row(
               children: [
@@ -1831,7 +2132,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: const Color(0xffF97316).withOpacity(0.18),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.straighten_rounded, size: 16, color: Color(0xffF97316)),
+                  child: const Icon(Icons.straighten_rounded,
+                      size: 16, color: Color(0xffF97316)),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1866,7 +2168,8 @@ class _HomeScreenState extends State<HomeScreen> {
         TextField(
           controller: _priceController,
           keyboardType: TextInputType.number,
-          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800),
+          style: const TextStyle(
+              color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800),
           decoration: _inputDecoration(
             hintText: 'السعر المقترح (جنيه مصري)',
             labelText: 'السعر المقترح (ج.م)',
@@ -1877,12 +2180,14 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.remove_circle_outline, color: Color(0xff94A3B8), size: 22),
+                  icon: const Icon(Icons.remove_circle_outline,
+                      color: Color(0xff94A3B8), size: 22),
                   onPressed: () => _decreasePrice(5),
                   tooltip: 'تخفيض السعر',
                 ),
                 IconButton(
-                  icon: const Icon(Icons.add_circle_outline, color: Color(0xffF97316), size: 22),
+                  icon: const Icon(Icons.add_circle_outline,
+                      color: Color(0xffF97316), size: 22),
                   onPressed: () => _increasePrice(5),
                   tooltip: 'زيادة السعر',
                 ),
@@ -1907,8 +2212,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   : [50, 70, 100, 150])
               .toSet()
               .map((amt) {
-            final isBase = _baseEstimatedPrice != null && amt == _baseEstimatedPrice!.toInt();
-            final isMin = _baseEstimatedPrice != null && amt == _minAllowedPrice.toInt();
+            final isBase = _baseEstimatedPrice != null &&
+                amt == _baseEstimatedPrice!.toInt();
+            final isMin =
+                _baseEstimatedPrice != null && amt == _minAllowedPrice.toInt();
             final isSelected = _priceController.text == amt.toString();
             String label = '$amt ج.م';
             if (isBase) {
@@ -1925,14 +2232,17 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? const Color(0xffF97316).withOpacity(0.18)
                       : const Color(0xff161B24),
                   borderRadius: BorderRadius.circular(9),
                   border: Border.all(
-                    color: isSelected ? const Color(0xffF97316) : const Color(0xff2A3342),
+                    color: isSelected
+                        ? const Color(0xffF97316)
+                        : const Color(0xff2A3342),
                     width: isSelected ? 1.4 : 1.0,
                   ),
                 ),
@@ -1943,7 +2253,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? const Color(0xffF97316)
                         : (isBase ? Colors.white : const Color(0xff94A3B8)),
                     fontSize: 11.5,
-                    fontWeight: isSelected || isBase ? FontWeight.w700 : FontWeight.w500,
+                    fontWeight: isSelected || isBase
+                        ? FontWeight.w700
+                        : FontWeight.w500,
                   ),
                 ),
               ),
@@ -1957,7 +2269,9 @@ class _HomeScreenState extends State<HomeScreen> {
           controller: _notesController,
           style: const TextStyle(color: Colors.white, fontSize: 13.5),
           decoration: _inputDecoration(
-            hintText: isLimousine ? 'ملاحظات للسائق (اختياري)...' : 'تفاصيل الشحنة أو متطلبات خاصة...',
+            hintText: isLimousine
+                ? 'ملاحظات للسائق (اختياري)...'
+                : 'تفاصيل الشحنة أو متطلبات خاصة...',
             labelText: 'ملاحظات إضافية',
             prefixIcon: Icons.notes_rounded,
           ),
@@ -1966,50 +2280,53 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 18),
 
         // ── 5. Primary Action CTA Button ──
-        ElevatedButton.icon(
-          onPressed: _isRequestingOrder
-              ? null
-              : () {
-                  if (isLimousine) {
-                    _requestLimousine();
-                  } else {
-                    _requestShipping();
-                  }
-                },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xffF97316),
-            foregroundColor: Colors.white,
-            elevation: 4,
-            shadowColor: const Color(0xffF97316).withOpacity(0.4),
-            minimumSize: const Size.fromHeight(54),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+        PressableScale(
+          scaleFactor: 0.97,
+          child: ElevatedButton.icon(
+            onPressed: _isRequestingOrder
+                ? null
+                : () {
+                    if (isLimousine) {
+                      _requestLimousine();
+                    } else {
+                      _requestShipping();
+                    }
+                  },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xffF97316),
+              foregroundColor: Colors.white,
+              elevation: 4,
+              shadowColor: const Color(0xffF97316).withOpacity(0.4),
+              minimumSize: const Size.fromHeight(54),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
-          ),
-          icon: _isRequestingOrder
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 2.2,
+            icon: _isRequestingOrder
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2.2,
+                    ),
+                  )
+                : Icon(
+                    isLimousine
+                        ? Icons.directions_car_rounded
+                        : Icons.local_shipping_outlined,
+                    size: 22,
                   ),
-                )
-              : Icon(
-                  isLimousine
-                      ? Icons.directions_car_rounded
-                      : Icons.local_shipping_outlined,
-                  size: 22,
-                ),
-          label: Text(
-            _isRequestingOrder
-                ? 'جاري إرسال الطلب...'
-                : isLimousine
-                    ? 'تأكيد طلب ليموزين الآن ➔'
-                    : 'تأكيد طلب الشحن الآن ➔',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
+            label: Text(
+              _isRequestingOrder
+                  ? 'جاري إرسال الطلب...'
+                  : isLimousine
+                      ? 'تأكيد طلب ليموزين الآن ➔'
+                      : 'تأكيد طلب الشحن الآن ➔',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ),
@@ -2093,6 +2410,7 @@ class ServiceDashboardScreen extends StatefulWidget {
   State<ServiceDashboardScreen> createState() => _ServiceDashboardScreenState();
 }
 
+// ignore: unused_element
 class _PremiumMapPin extends StatelessWidget {
   const _PremiumMapPin();
 
@@ -2123,7 +2441,8 @@ class _PremiumMapPin extends StatelessWidget {
           ),
           child: const Center(
             child: DecoratedBox(
-              decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              decoration:
+                  BoxDecoration(color: Colors.white, shape: BoxShape.circle),
               child: SizedBox(width: 4, height: 4),
             ),
           ),
@@ -2150,7 +2469,8 @@ class _ServiceDashboardScreenState extends State<ServiceDashboardScreen> {
       _error = null;
     });
 
-    final serviceType = widget.service == 'limousine' ? 'LIMOUSINE' : 'SHIPPING';
+    final serviceType =
+        widget.service == 'limousine' ? 'LIMOUSINE' : 'SHIPPING';
     try {
       final response = await http.get(Uri.parse(
           '${AppConfig.backendBaseUrl}/api/admin/orders?serviceType=$serviceType'));
@@ -2328,7 +2648,8 @@ class _ServiceDashboardScreenState extends State<ServiceDashboardScreen> {
                             ),
                           )
                         : _orders.isEmpty
-                            ? const Center(child: Text('لا توجد طلبات شحن حقيقية بعد'))
+                            ? const Center(
+                                child: Text('لا توجد طلبات شحن حقيقية بعد'))
                             : RefreshIndicator(
                                 onRefresh: _loadOrders,
                                 child: ListView.builder(
@@ -2336,11 +2657,15 @@ class _ServiceDashboardScreenState extends State<ServiceDashboardScreen> {
                                   itemBuilder: (context, index) {
                                     final order = _orders[index];
                                     final customer = order['customer'] as Map?;
-                                    final orderId = order['id']?.toString() ?? '-';
-                                    final serviceLabel = isLimousine ? 'ليموزين' : 'شحن';
+                                    final orderId =
+                                        order['id']?.toString() ?? '-';
+                                    final serviceLabel =
+                                        isLimousine ? 'ليموزين' : 'شحن';
                                     return _DashboardItem(
-                                      title: '$serviceLabel #${orderId.substring(0, orderId.length > 8 ? 8 : orderId.length)}',
-                                      subtitle: '${customer?['name'] ?? 'عميل'} - ${_statusLabel(order['status']?.toString())}',
+                                      title:
+                                          '$serviceLabel #${orderId.substring(0, orderId.length > 8 ? 8 : orderId.length)}',
+                                      subtitle:
+                                          '${customer?['name'] ?? 'عميل'} - ${_statusLabel(order['status']?.toString())}',
                                       icon: Icons.local_shipping,
                                       color: accentColor,
                                     );

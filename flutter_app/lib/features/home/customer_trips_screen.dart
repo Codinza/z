@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../auth/api_service.dart';
 import 'order_tracking_screen.dart';
+import 'home_screen.dart';
+import '../../core/widgets/animations/zoon_animations.dart';
 
 class CustomerTripsScreen extends StatefulWidget {
   const CustomerTripsScreen({super.key});
@@ -9,7 +11,8 @@ class CustomerTripsScreen extends StatefulWidget {
   State<CustomerTripsScreen> createState() => _CustomerTripsScreenState();
 }
 
-class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTickerProviderStateMixin {
+class _CustomerTripsScreenState extends State<CustomerTripsScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _isLoadingPastTrips = true;
   bool _isLoadingRecurringTrips = true;
@@ -67,6 +70,47 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
     }
   }
 
+  String _statusLabel(String? status) {
+    switch (status?.toUpperCase()) {
+      case 'NEW':
+      case 'PENDING':
+        return 'جديد';
+      case 'PRICE_SENT':
+        return 'عرض سعر';
+      case 'CUSTOMER_APPROVED':
+        return 'تمت الموافقة';
+      case 'COMPANY_ACCEPTED':
+      case 'ACCEPTED':
+        return 'تم القبول';
+      case 'CONFIRMED':
+      case 'DRIVER_ARRIVING':
+        return 'قيد التنفيذ';
+      case 'COMPLETED':
+      case 'مكتملة':
+        return 'مكتملة';
+      case 'CANCELLED':
+      case 'CANCELED':
+      case 'ملغاة':
+        return 'ملغاة';
+      default:
+        return status ?? 'قيد المراجعة';
+    }
+  }
+
+  void _reorderTrip(Map<String, dynamic> trip) {
+    final serviceType = trip['serviceType']?.toString().toUpperCase();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => HomeScreen(
+          initialService: serviceType == 'SHIPPING' ? 'shipping' : 'limousine',
+          initialPickupAddress: trip['from']?.toString(),
+          initialDropoffAddress: trip['to']?.toString(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -76,7 +120,11 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
         appBar: AppBar(
           backgroundColor: const Color(0xff111315),
           elevation: 0,
-          title: const Text('رحلاتي', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          title: const Text('رحلاتي',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold)),
           centerTitle: true,
           bottom: TabBar(
             controller: _tabController,
@@ -96,35 +144,51 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
             // Past Trips Tab
             _isLoadingPastTrips
                 ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xffF97316)),
+                    child: ZoonRiveLoading(
+                      size: 80,
+                      message: 'جاري تحميل رحلاتك...',
+                    ),
                   )
                 : _errorMessage.isNotEmpty
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.error_outline, color: Color(0xffF97316), size: 48),
+                            const Icon(Icons.error_outline,
+                                color: Color(0xffF97316), size: 48),
                             const SizedBox(height: 16),
                             Text(
                               _errorMessage,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.white, fontSize: 14),
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 14),
                             ),
                             const SizedBox(height: 16),
                             ElevatedButton(
                               onPressed: _loadPastTrips,
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xffF97316)),
-                              child: const Text('جرب مرة أخرى', style: TextStyle(color: Colors.white)),
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xffF97316)),
+                              child: const Text('جرب مرة أخرى',
+                                  style: TextStyle(color: Colors.white)),
                             ),
                           ],
                         ),
                       )
                     : _pastTrips.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'لا توجد رحلات سابقة',
-                              style: TextStyle(color: Color(0xff999999), fontSize: 14),
-                            ),
+                        ? ZoonEmptyState(
+                            title: 'لا توجد رحلات سابقة',
+                            subtitle:
+                                'ابدأ رحلتك الأولى مع زوون واطلب كابتن الآن بسهولة وسرعة.',
+                            icon: Icons.directions_car_filled_rounded,
+                            actionLabel: 'طلب رحلة الآن',
+                            onAction: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const HomeScreen(),
+                                ),
+                              );
+                            },
                           )
                         : _buildPastTripsTab(),
             // Recurring Trips Tab
@@ -150,8 +214,11 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
                 to: trip['to'] ?? 'Unknown',
                 date: _formatDate(trip['date']),
                 cost: trip['cost']?.toString() ?? '0',
-                status: trip['status'] ?? 'pending',
-                statusColor: trip['statusColor'] == 'success' ? Colors.green : Colors.red,
+                status: _statusLabel(trip['status']?.toString()),
+                statusColor: trip['statusColor'] == 'success'
+                    ? Colors.green
+                    : Colors.red,
+                onReorder: () => _reorderTrip(trip),
                 onTap: () {
                   final id = trip['id']?.toString();
                   if (id != null && id.isNotEmpty) {
@@ -165,7 +232,9 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
                               trip['type'] == 'trip',
                         ),
                       ),
-                    );
+                    ).then((_) {
+                      if (mounted) _loadPastTrips();
+                    });
                   }
                 },
               ),
@@ -194,7 +263,10 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
   Widget _buildRecurringTripsTab() {
     if (_isLoadingRecurringTrips) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xffF97316)),
+        child: ZoonRiveLoading(
+          size: 80,
+          message: 'جاري تحميل الرحلات المتكررة...',
+        ),
       );
     }
 
@@ -276,9 +348,11 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
     required String status,
     required Color statusColor,
     required VoidCallback onTap,
+    required VoidCallback onReorder,
   }) {
-    return GestureDetector(
+    return PressableScale(
       onTap: onTap,
+      scaleFactor: 0.97,
       child: Container(
         decoration: BoxDecoration(
           color: const Color(0xff111315),
@@ -292,46 +366,85 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(tripId, style: const TextStyle(color: Color(0xffF97316), fontSize: 14, fontWeight: FontWeight.bold)),
+                Text(tripId,
+                    style: const TextStyle(
+                        color: Color(0xffF97316),
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold)),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
                     color: statusColor.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(status, style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.w500)),
+                  child: Text(status,
+                      style: TextStyle(
+                          color: statusColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500)),
                 ),
               ],
             ),
             const SizedBox(height: 12),
             Row(
               children: [
-                const Icon(Icons.location_on, color: Color(0xffF97316), size: 18),
+                const Icon(Icons.location_on,
+                    color: Color(0xffF97316), size: 18),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(from, style: const TextStyle(color: Colors.white, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  child: Text(from,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(Icons.flag_outlined, color: Color(0xffF97316), size: 18),
+                const Icon(Icons.flag_outlined,
+                    color: Color(0xffF97316), size: 18),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(to, style: const TextStyle(color: Colors.white, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  child: Text(to,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            Divider(color: const Color(0xff2a2a2a), height: 1),
+            const Divider(color: Color(0xff2a2a2a), height: 1),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(date, style: const TextStyle(color: Color(0xff999999), fontSize: 12)),
-                Text('$cost ج.م', style: const TextStyle(color: Color(0xffF97316), fontSize: 14, fontWeight: FontWeight.bold)),
+                Text(date,
+                    style: const TextStyle(
+                        color: Color(0xff999999), fontSize: 12)),
+                Text('$cost ج.م',
+                    style: const TextStyle(
+                        color: Color(0xffF97316),
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold)),
               ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onReorder,
+                icon: const Icon(Icons.replay_rounded, size: 18),
+                label: const Text('اطلب الرحلة مرة أخرى'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xffF97316),
+                  side: const BorderSide(color: Color(0xffF97316)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -361,14 +474,23 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+              Text(name,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold)),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xffF97316).withOpacity(0.2),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: const Text('متكررة', style: TextStyle(color: Color(0xffF97316), fontSize: 11, fontWeight: FontWeight.w500)),
+                child: const Text('متكررة',
+                    style: TextStyle(
+                        color: Color(0xffF97316),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500)),
               ),
             ],
           ),
@@ -378,22 +500,31 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
               const Icon(Icons.location_on, color: Color(0xffF97316), size: 18),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(from, style: const TextStyle(color: Color(0xffcccccc), fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                child: Text(from,
+                    style:
+                        const TextStyle(color: Color(0xffcccccc), fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ),
             ],
           ),
           const SizedBox(height: 6),
           Row(
             children: [
-              const Icon(Icons.flag_outlined, color: Color(0xffF97316), size: 18),
+              const Icon(Icons.flag_outlined,
+                  color: Color(0xffF97316), size: 18),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(to, style: const TextStyle(color: Color(0xffcccccc), fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                child: Text(to,
+                    style:
+                        const TextStyle(color: Color(0xffcccccc), fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Divider(color: const Color(0xff2a2a2a), height: 1),
+          const Divider(color: Color(0xff2a2a2a), height: 1),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -401,11 +532,17 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(frequency, style: const TextStyle(color: Color(0xff999999), fontSize: 12)),
+                  Text(frequency,
+                      style: const TextStyle(
+                          color: Color(0xff999999), fontSize: 12)),
                   const SizedBox(height: 4),
-                  Text('الموعد: $time', style: const TextStyle(color: Color(0xff999999), fontSize: 12)),
+                  Text('الموعد: $time',
+                      style: const TextStyle(
+                          color: Color(0xff999999), fontSize: 12)),
                   const SizedBox(height: 4),
-                  Text(lastTrip, style: const TextStyle(color: Color(0xff666666), fontSize: 11)),
+                  Text(lastTrip,
+                      style: const TextStyle(
+                          color: Color(0xff666666), fontSize: 11)),
                 ],
               ),
             ],
@@ -419,7 +556,9 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
                 backgroundColor: const Color(0xffF97316),
                 padding: const EdgeInsets.symmetric(vertical: 10),
               ),
-              child: const Text('اطلب الآن', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              child: const Text('اطلب الآن',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -429,7 +568,8 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen> with SingleTi
 
   String _formatDate(dynamic date) {
     if (date == null) return 'Unknown';
-    final DateTime dateTime = date is DateTime ? date : DateTime.parse(date.toString());
+    final DateTime dateTime =
+        date is DateTime ? date : DateTime.parse(date.toString());
     return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }

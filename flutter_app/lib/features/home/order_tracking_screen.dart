@@ -11,13 +11,15 @@ import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/widgets/animations/zoon_animations.dart';
 import '../map_trip/rating_screen.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final String orderId;
   final bool isTrip;
 
-  const OrderTrackingScreen({super.key, required this.orderId, this.isTrip = false});
+  const OrderTrackingScreen(
+      {super.key, required this.orderId, this.isTrip = false});
 
   @override
   State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
@@ -35,7 +37,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   List<LatLng> _driverToPickupRoute = [];
   LatLng? _driverLocation;
   Timer? _driverMovementTimer;
-  int _driverRouteProgressIndex = 0;
   bool _isLoading = true;
   String? _error;
   late bool _isTrip;
@@ -90,7 +91,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   Future<bool> _fetchOrderData(bool asTrip) async {
     try {
       if (asTrip) {
-        final response = await ApiClient().dio.get('/api/trips/${widget.orderId}');
+        final response =
+            await ApiClient().dio.get('/api/trips/${widget.orderId}');
         final trip = response.data?['trip'] ?? response.data?['ride'];
         if (response.statusCode != 200 || trip is! Map) {
           return false;
@@ -108,16 +110,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
         if (isPartnerAccepted) {
           final driver = trip['driver'] as Map?;
-          final dLat = double.tryParse(driver?['lat']?.toString() ?? trip['driverLat']?.toString() ?? '');
-          final dLng = double.tryParse(driver?['lng']?.toString() ?? trip['driverLng']?.toString() ?? '');
+          final dLat = double.tryParse(driver?['lat']?.toString() ??
+              trip['driverLat']?.toString() ??
+              '');
+          final dLng = double.tryParse(driver?['lng']?.toString() ??
+              trip['driverLng']?.toString() ??
+              '');
           if (dLat != null && dLng != null) {
             _driverLocation = LatLng(dLat, dLng);
           } else if (_driverLocation == null) {
-            final pLat = double.tryParse(trip['pickupLat']?.toString() ?? '');
-            final pLng = double.tryParse(trip['pickupLng']?.toString() ?? '');
-            if (pLat != null && pLng != null) {
-              _driverLocation = LatLng(pLat - 0.0075, pLng - 0.0065);
-            }
+            await _loadPersistedDriverLocation(trip);
           }
         }
 
@@ -135,7 +137,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         }
         return true;
       } else {
-        final response = await ApiClient().dio.get('/api/orders/${widget.orderId}');
+        final response =
+            await ApiClient().dio.get('/api/orders/${widget.orderId}');
         final order = response.data?['order'];
         if (response.statusCode != 200 || order is! Map) {
           return false;
@@ -145,12 +148,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         final isPartnerAccepted = _hasAcceptedPartner(status);
 
         if (isPartnerAccepted && _driverLocation == null) {
-          final prefix = order['serviceType'] == 'SHIPPING' ? 'shipping' : 'limousine';
-          final pLat = double.tryParse(order['${prefix}PickupLat']?.toString() ?? '');
-          final pLng = double.tryParse(order['${prefix}PickupLng']?.toString() ?? '');
-          if (pLat != null && pLng != null) {
-            _driverLocation = LatLng(pLat - 0.0075, pLng - 0.0065);
-          }
+          await _loadPersistedDriverLocation(order);
         }
 
         if (mounted) {
@@ -169,6 +167,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     } catch (e) {
       return false;
     }
+  }
+
+  Future<void> _loadPersistedDriverLocation(Map order) async {
+    final driverId = order['driverId']?.toString() ??
+        (order['driver'] as Map?)?['id']?.toString();
+    if (driverId == null || driverId.isEmpty) return;
+
+    try {
+      final response = await ApiClient().dio.get('/api/locations');
+      final locations = response.data?['locations'];
+      if (locations is! List) return;
+      for (final item in locations) {
+        if (item is! Map || item['driverId']?.toString() != driverId) continue;
+        final lat = double.tryParse(item['lat']?.toString() ?? '');
+        final lng = double.tryParse(item['lng']?.toString() ?? '');
+        if (lat != null && lng != null) {
+          _driverLocation = LatLng(lat, lng);
+          return;
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _acceptDriverOffer(String driverId) async {
@@ -194,7 +213,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               content: const Text('تم قبول العرض! السائق في الطريق إليك ✓'),
               backgroundColor: const Color(0xff22C55E),
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
           );
           _loadOrder();
@@ -208,7 +228,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             content: const Text('فشل قبول العرض، حاول مرة أخرى'),
             backgroundColor: const Color(0xffEF4444),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -226,8 +247,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       );
 
       final response = await ApiClient().dio.post(
-        '/api/orders/${widget.orderId}/approve-price',
-      );
+            '/api/orders/${widget.orderId}/approve-price',
+          );
 
       if (mounted) {
         Navigator.pop(context);
@@ -237,7 +258,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               content: const Text('تمت الموافقة على السعر بنجاح ✓'),
               backgroundColor: const Color(0xff22C55E),
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
           );
           _loadOrder();
@@ -251,7 +273,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             content: const Text('فشلت الموافقة على السعر، حاول مجدداً'),
             backgroundColor: const Color(0xffEF4444),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -265,10 +288,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           backgroundColor: const Color(0xff1A1D21),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text(
             'رفض عرض السعر',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
           ),
           content: const Text(
             'هل أنت متأكد من رفض السعر المقترح من شركة الشحن؟',
@@ -277,14 +302,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('تراجع', style: TextStyle(color: Color(0xff94A3B8))),
+              child: const Text('تراجع',
+                  style: TextStyle(color: Color(0xff94A3B8))),
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xffEF4444),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
               child: const Text('تأكيد الرفض'),
             ),
@@ -317,7 +344,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               content: const Text('تم رفض عرض السعر بنجاح'),
               backgroundColor: const Color(0xffEF4444),
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
           );
           _loadOrder();
@@ -331,7 +359,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             content: const Text('فشل تسجيل الرفض، حاول مجدداً'),
             backgroundColor: const Color(0xffEF4444),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -369,12 +398,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   color: const Color(0xffEF4444).withOpacity(0.12),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close_rounded, color: Color(0xffEF4444), size: 30),
+                child: const Icon(Icons.close_rounded,
+                    color: Color(0xffEF4444), size: 30),
               ),
               const SizedBox(height: 16),
               const Text(
                 'هل أنت متأكد من إلغاء هذا الطلب؟',
-                style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -392,9 +425,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         foregroundColor: const Color(0xff94A3B8),
                         side: const BorderSide(color: Color(0xff2A2D33)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                       ),
-                      child: const Text('تراجع', style: TextStyle(fontWeight: FontWeight.w600)),
+                      child: const Text('تراجع',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -405,10 +440,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         backgroundColor: const Color(0xffEF4444),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                         elevation: 0,
                       ),
-                      child: const Text('تأكيد الإلغاء', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: const Text('تأكيد الإلغاء',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
@@ -447,7 +484,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             content: const Text('تم إلغاء الطلب'),
             backgroundColor: const Color(0xffEF4444),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
         _loadOrder();
@@ -460,7 +498,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             content: const Text('تعذر إلغاء الطلب، يرجى المحاولة لاحقاً'),
             backgroundColor: const Color(0xffEF4444),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -500,7 +539,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   void _handleNewOffer(dynamic data) {
     if (data is! Map) return;
-    final rId = (data['rideId'] ?? data['tripId'] ?? data['orderId'])?.toString();
+    final rId =
+        (data['rideId'] ?? data['tripId'] ?? data['orderId'])?.toString();
     if (rId != null && rId != widget.orderId) return;
 
     final driverName = data['driverName']?.toString() ?? 'كابتن';
@@ -514,7 +554,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     if (mounted) {
       setState(() {
         final existingIdx = _tripOffers.indexWhere(
-          (o) => o is Map && o['driverId']?.toString() == data['driverId']?.toString(),
+          (o) =>
+              o is Map &&
+              o['driverId']?.toString() == data['driverId']?.toString(),
         );
         if (existingIdx >= 0) {
           _tripOffers[existingIdx] = Map<String, dynamic>.from(data);
@@ -531,12 +573,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     if (data is! Map || data['orderId']?.toString() != widget.orderId) return;
     final status = data['status']?.toString();
     final price = data['price'] ?? data['offerAmount'];
+
+    if (status != null && mounted) {
+      setState(() {
+        _order = {
+          ...?_order,
+          'status': status,
+          if (price != null) 'finalPrice': price,
+        };
+      });
+    }
+
     if (status == 'PRICE_SENT') {
       NotificationService().showNotification(
         title: 'عرض سعر جديد لشحنتك! 🏷️',
-        body: price != null ? 'وصلك عرض سعر بقيمة $price ج.م' : 'وصل عرض سعر جديد لطلبك',
+        body: price != null
+            ? 'وصلك عرض سعر بقيمة $price ج.م'
+            : 'وصل عرض سعر جديد لطلبك',
       );
-    } else if (status == 'COMPANY_ACCEPTED' || status == 'CONFIRMED' || status == 'CUSTOMER_APPROVED') {
+    } else if (status == 'COMPANY_ACCEPTED' ||
+        status == 'CONFIRMED' ||
+        status == 'CUSTOMER_APPROVED') {
       NotificationService().showNotification(
         title: 'تم قبول وتأكيد الطلب! 🚚',
         body: 'تم قبول طلب الشحن الخاص بك وجاري تجهيز التوصيل',
@@ -643,12 +700,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   LatLng _locationFor(String type) {
     if (_isTrip) {
-      final lat = double.tryParse(_order?['${type.toLowerCase()}Lat']?.toString() ?? '');
-      final lng = double.tryParse(_order?['${type.toLowerCase()}Lng']?.toString() ?? '');
+      final lat = double.tryParse(
+          _order?['${type.toLowerCase()}Lat']?.toString() ?? '');
+      final lng = double.tryParse(
+          _order?['${type.toLowerCase()}Lng']?.toString() ?? '');
       if (lat != null && lng != null) return LatLng(lat, lng);
       return _defaultLocation;
     }
-    final prefix = _order?['serviceType'] == 'SHIPPING' ? 'shipping' : 'limousine';
+    final prefix =
+        _order?['serviceType'] == 'SHIPPING' ? 'shipping' : 'limousine';
     final lat = double.tryParse(_order?['$prefix${type}Lat']?.toString() ?? '');
     final lng = double.tryParse(_order?['$prefix${type}Lng']?.toString() ?? '');
     if (lat == null || lng == null) return _defaultLocation;
@@ -660,7 +720,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       return _order?['${type.toLowerCase()}Address']?.toString() ??
           (type == 'Pickup' ? 'نقطة الانطلاق' : 'نقطة الوصول');
     }
-    final prefix = _order?['serviceType'] == 'SHIPPING' ? 'shipping' : 'limousine';
+    final prefix =
+        _order?['serviceType'] == 'SHIPPING' ? 'shipping' : 'limousine';
     return _order?['$prefix${type}Address']?.toString() ??
         (type == 'Pickup' ? 'نقطة الانطلاق' : 'نقطة الوصول');
   }
@@ -680,7 +741,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         'https://router.project-osrm.org/route/v1/driving/${pickup.longitude},${pickup.latitude};${dropoff.longitude},${dropoff.latitude}',
         queryParameters: {'overview': 'full', 'geometries': 'geojson'},
       );
-      final coordinates = response.data['routes']?[0]?['geometry']?['coordinates'];
+      final coordinates =
+          response.data['routes']?[0]?['geometry']?['coordinates'];
       if (coordinates is List && mounted) {
         final points = coordinates
             .whereType<List>()
@@ -717,7 +779,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         'https://router.project-osrm.org/route/v1/driving/${_driverLocation!.longitude},${_driverLocation!.latitude};${pickup.longitude},${pickup.latitude}',
         queryParameters: {'overview': 'full', 'geometries': 'geojson'},
       );
-      final coordinates = response.data['routes']?[0]?['geometry']?['coordinates'];
+      final coordinates =
+          response.data['routes']?[0]?['geometry']?['coordinates'];
       if (coordinates is List && mounted) {
         final points = coordinates
             .whereType<List>()
@@ -731,7 +794,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           setState(() {
             _driverToPickupRoute = points;
           });
-          _startDriverApproachAnimation();
           _fitCameraBounds();
         }
       }
@@ -743,29 +805,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         _fitCameraBounds();
       }
     }
-  }
-
-  void _startDriverApproachAnimation() {
-    _driverMovementTimer?.cancel();
-    if (_driverToPickupRoute.length < 2) return;
-    _driverRouteProgressIndex = 0;
-    _driverMovementTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      final status = _order?['status']?.toString();
-      if (!_hasAcceptedPartner(status) || status == 'started' || status == 'completed') {
-        timer.cancel();
-        return;
-      }
-      if (_driverRouteProgressIndex < _driverToPickupRoute.length - 1) {
-        _driverRouteProgressIndex++;
-        setState(() {
-          _driverLocation = _driverToPickupRoute[_driverRouteProgressIndex];
-        });
-      }
-    });
   }
 
   void _fitCameraBounds() {
@@ -815,7 +854,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       case 'NEW':
       case 'REQUESTED':
       case 'PENDING':
-        return _isTrip ? 'جاري البحث عن سائق' : 'تم استلام الطلب وبانتظار العروض';
+        return _isTrip
+            ? 'جاري البحث عن سائق'
+            : 'تم استلام الطلب وبانتظار العروض';
       case 'PRICE_SENT':
         return 'وصلك عرض سعر جديد من الشركة!';
       case 'COMPANY_ACCEPTED':
@@ -986,15 +1027,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           title: Text(
             isShipping ? 'معاينة وتتبع الشحنة' : 'معاينة وتتبع الرحلة',
             style: const TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.bold),
+                color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
           ),
           centerTitle: true,
         ),
         body: _isLoading
             ? const Center(
-                child: CircularProgressIndicator(color: Color(0xffF97316)),
+                child: ZoonRiveLoading(
+                  size: 80,
+                  message: 'جاري تحميل تفاصيل ومسار الطلب...',
+                ),
               )
             : _error != null
                 ? _ErrorView(message: _error!, onRetry: _loadOrder)
@@ -1022,7 +1064,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                               if (_driverToPickupRoute.length > 1) ...[
                                 Polyline(
                                   points: _driverToPickupRoute,
-                                  color: const Color(0xff22C55E).withOpacity(0.35),
+                                  color:
+                                      const Color(0xff22C55E).withOpacity(0.35),
                                   strokeWidth: 9,
                                 ),
                                 Polyline(
@@ -1042,8 +1085,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                       ? _routePoints
                                       : [pickup, dropoff],
                                   color: const Color(0xffF97316).withOpacity(
-                                      _hasAcceptedPartner(status) ? 0.35 : 0.35),
-                                  strokeWidth: _hasAcceptedPartner(status) ? 6 : 9,
+                                      _hasAcceptedPartner(status)
+                                          ? 0.35
+                                          : 0.35),
+                                  strokeWidth:
+                                      _hasAcceptedPartner(status) ? 6 : 9,
                                 ),
                                 Polyline(
                                   points: _routePoints.length > 1
@@ -1052,7 +1098,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                   color: _hasAcceptedPartner(status)
                                       ? const Color(0xffF97316).withOpacity(0.8)
                                       : const Color(0xffF97316),
-                                  strokeWidth: _hasAcceptedPartner(status) ? 3.5 : 4.5,
+                                  strokeWidth:
+                                      _hasAcceptedPartner(status) ? 3.5 : 4.5,
                                 ),
                               ],
                             ],
@@ -1088,7 +1135,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                               ),
 
                               // Live Driver / Vehicle Marker ("السواق جايله")
-                              if (_driverLocation != null && _hasAcceptedPartner(status))
+                              if (_driverLocation != null &&
+                                  _hasAcceptedPartner(status))
                                 Marker(
                                   point: _driverLocation!,
                                   width: 72,
@@ -1142,7 +1190,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         alignment: Alignment.bottomCenter,
                         child: Container(
                           constraints: BoxConstraints(
-                            maxHeight: MediaQuery.of(context).size.height * 0.56,
+                            maxHeight:
+                                MediaQuery.of(context).size.height * 0.56,
                           ),
                           decoration: const BoxDecoration(
                             color: Color(0xff111315),
@@ -1261,6 +1310,19 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                 // Timeline Progress Steps
                                 _buildTimeline(status),
 
+                                if (_hasAcceptedPartner(status) &&
+                                    status != 'COMPLETED' &&
+                                    status != 'CANCELLED') ...[
+                                  const SizedBox(height: 14),
+                                  ZoonDeliveryVehicleAnimation(
+                                    height: 85,
+                                    statusLabel: isShipping
+                                        ? 'الشحنة في طريقها إليك'
+                                        : 'الكابتن متوجه إليك الآن',
+                                    subtitle: 'تتبع حركة المركبة مباشرة على الخريطة',
+                                  ),
+                                ],
+
                                 const SizedBox(height: 18),
 
                                 // Accepted Partner Card (Driver or Company)
@@ -1290,29 +1352,30 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
                                 // Cancel button
                                 if (_isCancellable(status))
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 46,
-                                    child: OutlinedButton.icon(
-                                      onPressed: _cancelOrder,
-                                      icon: const Icon(
-                                          Icons.close_rounded,
-                                          size: 18,
-                                          color: Color(0xffEF4444)),
-                                      label: const Text(
-                                        'إلغاء هذا الطلب',
-                                        style: TextStyle(
-                                          color: Color(0xffEF4444),
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
+                                  PressableScale(
+                                    scaleFactor: 0.97,
+                                    child: SizedBox(
+                                      width: double.infinity,
+                                      height: 46,
+                                      child: OutlinedButton.icon(
+                                        onPressed: _cancelOrder,
+                                        icon: const Icon(Icons.close_rounded,
+                                            size: 18, color: Color(0xffEF4444)),
+                                        label: const Text(
+                                          'إلغاء هذا الطلب',
+                                          style: TextStyle(
+                                            color: Color(0xffEF4444),
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
-                                      ),
-                                      style: OutlinedButton.styleFrom(
-                                        side: const BorderSide(
-                                            color: Color(0xff3B1818)),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
+                                        style: OutlinedButton.styleFrom(
+                                          side: const BorderSide(
+                                              color: Color(0xff3B1818)),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -1528,8 +1591,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 style: TextStyle(
                   color: isReached ? Colors.white : const Color(0xff64748B),
                   fontSize: 11,
-                  fontWeight:
-                      isReached ? FontWeight.w600 : FontWeight.normal,
+                  fontWeight: isReached ? FontWeight.w600 : FontWeight.normal,
                 ),
               );
             }).toList(),
@@ -1553,10 +1615,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         s == 'ON_THE_WAY';
   }
 
-  Widget _buildAvatar(String? imageSource, {double size = 44, bool isTrip = true}) {
+  Widget _buildAvatar(String? imageSource,
+      {double size = 44, bool isTrip = true}) {
     if (imageSource != null && imageSource.trim().isNotEmpty) {
       final cleanSource = imageSource.trim();
-      if (cleanSource.startsWith('http://') || cleanSource.startsWith('https://')) {
+      if (cleanSource.startsWith('http://') ||
+          cleanSource.startsWith('https://')) {
         return ClipOval(
           child: Image.network(
             cleanSource,
@@ -1626,8 +1690,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         driver?['driverImage']?.toString() ??
         _order?['driverImage']?.toString();
 
-    final rating = (driver?['rating'] ?? _order?['driverRating'] as num?)?.toDouble() ?? 5.0;
-    final totalRatings = (driver?['totalRatings'] ?? _order?['driverTotalRatings'] as num?)?.toInt() ?? 0;
+    final rating =
+        (driver?['rating'] ?? _order?['driverRating'] as num?)?.toDouble() ??
+            5.0;
+    final totalRatings =
+        (driver?['totalRatings'] ?? _order?['driverTotalRatings'] as num?)
+                ?.toInt() ??
+            0;
 
     final car = (driver?['car'] ?? _order?['car']) as Map?;
     final carDesc = car != null
@@ -1844,7 +1913,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       decoration: BoxDecoration(
         color: const Color(0xff1A1713),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xffF59E0B).withOpacity(0.5), width: 1.5),
+        border: Border.all(
+            color: const Color(0xffF59E0B).withOpacity(0.5), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: const Color(0xffF59E0B).withOpacity(0.12),
@@ -1882,9 +1952,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                     SizedBox(height: 2),
                     Text(
                       'قامت شركة النقل باقتراح سعر جديد لتنفيذ شحنتك',
-                      style: TextStyle(
-                          color: Color(0xff94A3B8),
-                          fontSize: 12),
+                      style: TextStyle(color: Color(0xff94A3B8), fontSize: 12),
                     ),
                   ],
                 ),
@@ -1908,7 +1976,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                     children: [
                       const Text(
                         'سعرك المقترح:',
-                        style: TextStyle(color: Color(0xff94A3B8), fontSize: 11),
+                        style:
+                            TextStyle(color: Color(0xff94A3B8), fontSize: 11),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -1922,14 +1991,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                       ),
                     ],
                   ),
-                  const Icon(Icons.arrow_back_rounded, color: Color(0xff94A3B8), size: 18),
+                  const Icon(Icons.arrow_back_rounded,
+                      color: Color(0xff94A3B8), size: 18),
                 ],
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
                       'عرض الشركة الحالي:',
-                      style: TextStyle(color: Color(0xffF97316), fontSize: 11, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                          color: Color(0xffF97316),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -1955,7 +2028,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   height: 44,
                   child: OutlinedButton.icon(
                     onPressed: _rejectOrderPrice,
-                    icon: const Icon(Icons.close_rounded, color: Color(0xffEF4444), size: 18),
+                    icon: const Icon(Icons.close_rounded,
+                        color: Color(0xffEF4444), size: 18),
                     label: const Text(
                       'رفض العرض',
                       style: TextStyle(
@@ -1981,7 +2055,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   height: 44,
                   child: ElevatedButton.icon(
                     onPressed: _approveOrderPrice,
-                    icon: const Icon(Icons.check_rounded, color: Colors.white, size: 18),
+                    icon: const Icon(Icons.check_rounded,
+                        color: Colors.white, size: 18),
                     label: const Text(
                       'قبول السعر',
                       style: TextStyle(
@@ -2161,9 +2236,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         style: TextStyle(
                             fontSize: 13, fontWeight: FontWeight.bold)),
                   ),
-                if (!isAccepted && !_isTrip && (status == 'pending' || status == 'PENDING' || status == 'PRICE_SENT' || status == null)) ...[
+                if (!isAccepted &&
+                    !_isTrip &&
+                    (status == 'pending' ||
+                        status == 'PENDING' ||
+                        status == 'PRICE_SENT' ||
+                        status == null)) ...[
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Color(0xffEF4444), size: 20),
+                    icon: const Icon(Icons.close_rounded,
+                        color: Color(0xffEF4444), size: 20),
                     tooltip: 'رفض العرض',
                     onPressed: _rejectOrderPrice,
                   ),
