@@ -1,74 +1,237 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-
-import '../../core/config/app_config.dart';
+import '../auth/auth_service.dart';
 
 class AdminService {
-  static Future<List<Map<String, dynamic>>> getDriverTopUps() async {
+  // ===================== DRIVERS =====================
+
+  /// Get all drivers with optional status and search filters
+  static Future<List<Map<String, dynamic>>> getAllDrivers({
+    String? status,
+    String? search,
+  }) async {
     try {
-      final response = await http.get(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/admin/driver-top-ups'),
-      );
-      if (response.statusCode != 200) return [];
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      return List<Map<String, dynamic>>.from(body['requests'] ?? const []);
+      final dio = await AuthService.getAuthenticatedDio();
+      final queryParams = <String, dynamic>{};
+      if (status != null && status != 'ALL') queryParams['status'] = status;
+      if (search != null && search.trim().isNotEmpty) {
+        queryParams['search'] = search.trim();
+      }
+
+      final response = await dio.get('/api/admin/drivers', queryParameters: queryParams);
+      if (response.statusCode == 200 && response.data is Map) {
+        final list = response.data['drivers'];
+        if (list is List) {
+          return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
     } catch (e) {
-      debugPrint('getDriverTopUps error: $e');
+      debugPrint('AdminService.getAllDrivers error: $e');
       return [];
     }
   }
 
-  static Future<bool> reviewDriverTopUp(String id,
-      {required bool approve, String? note}) async {
+  /// Update driver status (approved, rejected, suspended, pending)
+  static Future<bool> updateDriverStatus(String driverId, String status) async {
     try {
-      final response = await http.post(
-        Uri.parse(
-            '${AppConfig.backendBaseUrl}/api/admin/driver-top-ups/$id/review'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'approve': approve, 'adminNote': note}),
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.patch(
+        '/api/admin/drivers/$driverId/status',
+        data: {'status': status},
       );
       return response.statusCode == 200;
     } catch (e) {
-      debugPrint('reviewDriverTopUp error: $e');
+      debugPrint('AdminService.updateDriverStatus error: $e');
+      return false;
+    }
+  }
+
+  /// Directly adjust driver wallet balance (credit or debit)
+  static Future<bool> adjustDriverWallet(
+    String driverId,
+    double amount, {
+    String? reason,
+  }) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.post(
+        '/api/admin/drivers/$driverId/wallet',
+        data: {'amount': amount, 'reason': reason ?? 'تعديل يدوي من الإدارة'},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('AdminService.adjustDriverWallet error: $e');
+      return false;
+    }
+  }
+
+  /// Approve pending driver
+  static Future<bool> approveDriver(String id) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.post('/api/admin/drivers/$id/approve');
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('AdminService.approveDriver error: $e');
+      return false;
+    }
+  }
+
+  /// Reject driver
+  static Future<bool> rejectDriver(String id) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.post('/api/admin/drivers/$id/reject');
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('AdminService.rejectDriver error: $e');
       return false;
     }
   }
 
   static Future<Map<String, dynamic>?> getPendingDrivers() async {
     try {
-      final response = await http.get(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/admin/drivers/pending'),
-      );
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.get('/api/admin/drivers/pending');
       if (response.statusCode == 200) {
-        return {'data': []}; // Return empty for Dummy User mode
+        return Map<String, dynamic>.from(response.data);
       }
       return null;
     } catch (e) {
-      debugPrint('getPendingDrivers error: $e');
+      debugPrint('AdminService.getPendingDrivers error: $e');
       return null;
     }
   }
 
-  static Future<bool> approveDriver(String id) async {
+  // ===================== FINANCES & TOP-UPS =====================
+
+  /// Get financial aggregate summary
+  static Future<Map<String, dynamic>> getFinancesSummary() async {
     try {
-      final response = await http.post(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/admin/drivers/$id/approve'),
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.get('/api/admin/finances');
+      if (response.statusCode == 200 && response.data is Map) {
+        return Map<String, dynamic>.from(response.data);
+      }
+      return {};
+    } catch (e) {
+      debugPrint('AdminService.getFinancesSummary error: $e');
+      return {};
+    }
+  }
+
+  /// Get driver wallet top-up requests
+  static Future<List<Map<String, dynamic>>> getDriverTopUps() async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.get('/api/admin/driver-top-ups');
+      if (response.statusCode == 200 && response.data is Map) {
+        final list = response.data['requests'];
+        if (list is List) {
+          return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('AdminService.getDriverTopUps error: $e');
+      return [];
+    }
+  }
+
+  /// Review driver top-up request
+  static Future<bool> reviewDriverTopUp(
+    String id, {
+    required bool approve,
+    String? note,
+  }) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.post(
+        '/api/admin/driver-top-ups/$id/review',
+        data: {'approve': approve, 'adminNote': note},
       );
       return response.statusCode == 200;
     } catch (e) {
+      debugPrint('AdminService.reviewDriverTopUp error: $e');
       return false;
     }
   }
 
-  static Future<bool> rejectDriver(String id) async {
+  // ===================== CUSTOMERS =====================
+
+  /// Get customers directory with search and order stats
+  static Future<List<Map<String, dynamic>>> getAllCustomers({
+    String? search,
+  }) async {
     try {
-      final response = await http.post(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/admin/drivers/$id/reject'),
+      final dio = await AuthService.getAuthenticatedDio();
+      final queryParams = <String, dynamic>{};
+      if (search != null && search.trim().isNotEmpty) {
+        queryParams['search'] = search.trim();
+      }
+
+      final response = await dio.get(
+        '/api/admin/customers',
+        queryParameters: queryParams,
       );
+      if (response.statusCode == 200 && response.data is Map) {
+        final list = response.data['customers'];
+        if (list is List) {
+          return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('AdminService.getAllCustomers error: $e');
+      return [];
+    }
+  }
+
+  // ===================== SUPPORT & TICKETS =====================
+
+  /// Get support tickets with status filter and search
+  static Future<Map<String, dynamic>> getSupportTickets({
+    String? status,
+    String? search,
+  }) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final queryParams = <String, dynamic>{};
+      if (status != null && status != 'ALL') queryParams['status'] = status;
+      if (search != null && search.trim().isNotEmpty) {
+        queryParams['search'] = search.trim();
+      }
+
+      final response = await dio.get(
+        '/api/admin/support',
+        queryParameters: queryParams,
+      );
+      if (response.statusCode == 200 && response.data is Map) {
+        return Map<String, dynamic>.from(response.data);
+      }
+      return {'tickets': [], 'stats': {}};
+    } catch (e) {
+      debugPrint('AdminService.getSupportTickets error: $e');
+      return {'tickets': [], 'stats': {}};
+    }
+  }
+
+  /// Update support ticket status or record admin reply
+  static Future<bool> updateSupportTicket(
+    String ticketId, {
+    String? status,
+    String? adminReply,
+  }) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final data = <String, dynamic>{};
+      if (status != null) data['status'] = status;
+      if (adminReply != null) data['adminReply'] = adminReply;
+
+      final response = await dio.patch('/api/admin/support/$ticketId', data: data);
       return response.statusCode == 200;
     } catch (e) {
+      debugPrint('AdminService.updateSupportTicket error: $e');
       return false;
     }
   }

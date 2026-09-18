@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { supportService } from '../services/supportService.js';
 
 export const getPageContent = (req, res) => {
   const { pageId } = req.params;
@@ -32,13 +33,21 @@ export const getPageContent = (req, res) => {
 };
 
 export const submitContactMessage = (req, res) => {
-  const { name, email, message } = req.body;
+  const { name, email, message, phone } = req.body;
   if (!name || !email || !message) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
-  
-  // In a real app, save to DB or send email
-  logger.info('New contact message received', { name, email, message });
-  
-  res.status(201).json({ success: true, message: 'تم إرسال رسالتك بنجاح' });
+
+  logger.info('New contact message received', { name, email, message, phone });
+
+  const ticket = supportService.createTicket({
+    name,
+    email,
+    phone: phone || '',
+    message,
+    userId: req.user?.id || null,
+    role: req.user?.role || 'customer',
+  });
+
+  res.status(201).json({ success: true, message: 'تم إرسال رسالتك بنجاح', ticket });
 };

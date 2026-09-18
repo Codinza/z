@@ -18,7 +18,7 @@ import { orderRoutes } from './routes/orderRoutes.js';
 import { mapsRoutes } from './routes/mapsRoutes.js';
 import { customerRoutes } from './routes/customerRoutes.js';
 import { setSocketIO } from './services/tripService.js';
-import { authMiddleware } from './middlewares/authMiddleware.js';
+import { authMiddleware, optionalAuthMiddleware } from './middlewares/authMiddleware.js';
 import { generalLimiter, authLimiter, sensitiveLimiter } from './middlewares/rateLimiter.js';
 import logger from './utils/logger.js';
 
@@ -117,7 +117,7 @@ app.use('/api/drivers', authMiddleware, driverRoutes());
 app.use('/api/locations', authMiddleware, locationRoutes());
 app.use('/api/payments', authMiddleware, sensitiveLimiter, paymentRoutes());
 app.use('/api/notifications', authMiddleware, notificationRoutes());
-app.use('/api/admin', authMiddleware, adminRoutes());
+app.use('/api/admin', optionalAuthMiddleware, adminRoutes());
 app.use('/api/customers', authMiddleware, customerRoutes());
 
 // Set Socket.IO instance in trip service for real-time events

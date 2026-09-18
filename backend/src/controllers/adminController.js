@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { tripService, emitOrderStatusChanged } from '../services/tripService.js';
 import { getOnlineDriversCount, getOnlineDriversList } from '../sockets/socketServer.js';
+import { supportService } from '../services/supportService.js';
 import logger from '../utils/logger.js';
 
 const prisma = new PrismaClient();
@@ -93,6 +94,130 @@ export const rejectDriver = async (req, res) => {
   }
 };
 
+export const getAllDrivers = async (req, res) => {
+  try {
+    const { status, search } = req.query;
+    const where = {};
+    if (status && status !== 'ALL') {
+      where.status = status;
+    }
+
+    let drivers = await prisma.driver.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true, phone: true, email: true, profileImage: true } },
+        car: true,
+        trips: {
+          select: { id: true, status: true, finalFare: true, fareEstimate: true },
+        },
+        ratings: { select: { score: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    let formatted = drivers.map((d) => {
+      const completedTrips = (d.trips || []).filter((t) => t.status === 'completed');
+      const avgRating = (d.ratings && d.ratings.length > 0)
+        ? Number((d.ratings.reduce((acc, r) => acc + r.score, 0) / d.ratings.length).toFixed(1))
+        : 5.0;
+
+      return {
+        id: d.id,
+        userId: d.userId,
+        name: d.user?.name || 'سائق',
+        phone: d.user?.phone || '',
+        email: d.user?.email || '',
+        profileImage: d.user?.profileImage,
+        status: d.status || 'approved', // 'pending', 'approved', 'rejected', 'suspended'
+        walletBalance: d.walletBalance || 0.0,
+        car: d.car
+          ? {
+              model: d.car.model,
+              color: d.car.color,
+              year: d.car.year,
+              plateNumber: d.car.plateNumber,
+            }
+          : null,
+        completedTripsCount: completedTrips.length,
+        rating: avgRating,
+        createdAt: d.createdAt,
+      };
+    });
+
+    if (search && search.trim().length > 0) {
+      const q = search.trim().toLowerCase();
+      formatted = formatted.filter((d) =>
+        (d.name && d.name.toLowerCase().includes(q)) ||
+        (d.phone && d.phone.includes(q)) ||
+        (d.car?.plateNumber && d.car.plateNumber.toLowerCase().includes(q)) ||
+        (d.car?.model && d.car.model.toLowerCase().includes(q))
+      );
+    }
+
+    res.json({ drivers: formatted });
+  } catch (error) {
+    logger.error('Failed to fetch drivers', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to fetch drivers' });
+  }
+};
+
+export const updateDriverStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status is required' });
+
+    const driver = await prisma.driver.update({
+      where: { id },
+      data: { status },
+      include: { user: true },
+    });
+
+    res.json({ message: 'Driver status updated successfully', driver });
+  } catch (error) {
+    logger.error('Failed to update driver status', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to update driver status' });
+  }
+};
+
+export const adjustDriverWallet = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, reason } = req.body;
+    const numericAmount = parseFloat(amount);
+    if (isNaN(numericAmount) || numericAmount === 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
+    }
+
+    const driver = await prisma.driver.update({
+      where: { id },
+      data: { walletBalance: { increment: numericAmount } },
+      include: { user: true },
+    });
+
+    // Notify driver if user exists
+    if (driver.userId) {
+      await prisma.notification.create({
+        data: {
+          userId: driver.userId,
+          title: numericAmount > 0 ? 'إيداع رصيد في المحفظة 💰' : 'خصم من رصيد المحفظة ⚠️',
+          body: `${numericAmount > 0 ? 'تمت إضافة' : 'تم خصم'} ${Math.abs(numericAmount)} ج.م ${reason ? `(${reason})` : ''}`,
+          type: 'wallet_update',
+        },
+      }).catch(() => {});
+    }
+
+    res.json({
+      message: 'Driver wallet updated successfully',
+      driverId: driver.id,
+      newBalance: driver.walletBalance,
+    });
+  } catch (error) {
+    logger.error('Failed to adjust driver wallet', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to adjust driver wallet' });
+  }
+};
+
 // Company management
 export const getPendingCompanies = async (req, res) => {
   try {
@@ -167,22 +292,121 @@ export const getAllOrders = async (req, res) => {
 
 export const getAllCustomers = async (req, res) => {
   try {
+    const { search } = req.query;
     const customers = await prisma.user.findMany({
       where: { role: 'customer' },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        email: true,
-        createdAt: true,
+      include: {
+        trips: {
+          select: { id: true, status: true, finalFare: true, fareEstimate: true },
+        },
+        orders: {
+          select: { id: true, status: true, finalPrice: true, customerOfferPrice: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({ customers });
+    let formatted = customers.map((c) => {
+      const completedTrips = (c.trips || []).filter((t) => t.status === 'completed');
+      const tripsSpent = completedTrips.reduce((sum, t) => sum + (t.finalFare || t.fareEstimate || 0), 0);
+      const completedOrders = (c.orders || []).filter((o) => o.status === 'COMPLETED');
+      const ordersSpent = completedOrders.reduce((sum, o) => sum + (o.finalPrice || o.customerOfferPrice || 0), 0);
+
+      return {
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        email: c.email,
+        walletBalance: c.walletBalance || 0,
+        createdAt: c.createdAt,
+        totalTrips: c.trips?.length || 0,
+        completedTripsCount: completedTrips.length,
+        totalOrders: c.orders?.length || 0,
+        totalSpent: Number((tripsSpent + ordersSpent).toFixed(2)),
+      };
+    });
+
+    if (search && search.trim().length > 0) {
+      const q = search.trim().toLowerCase();
+      formatted = formatted.filter((c) =>
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q))
+      );
+    }
+
+    res.json({ customers: formatted });
   } catch (error) {
     logger.error('Failed to fetch customers', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to fetch customers' });
+  }
+};
+
+export const getFinancesSummary = async (req, res) => {
+  try {
+    // Total drivers wallet balance & count
+    const driversAgg = await prisma.driver.aggregate({
+      _sum: { walletBalance: true },
+      _count: { id: true },
+    }).catch(() => ({ _sum: { walletBalance: 0 }, _count: { id: 0 } }));
+
+    // Top-up requests count & total
+    const pendingTopUps = await prisma.driverTopUpRequest.count({
+      where: { status: 'pending' },
+    }).catch(() => 0);
+
+    const approvedTopUpsAgg = await prisma.driverTopUpRequest.aggregate({
+      where: { status: 'approved' },
+      _sum: { amount: true },
+      _count: { id: true },
+    }).catch(() => ({ _sum: { amount: 0 }, _count: { id: 0 } }));
+
+    // Trips volume
+    const tripsAgg = await prisma.trip.aggregate({
+      where: { status: 'completed' },
+      _sum: { finalFare: true },
+      _count: { id: true },
+    }).catch(() => ({ _sum: { finalFare: 0 }, _count: { id: 0 } }));
+
+    res.json({
+      totalDriversBalance: driversAgg._sum.walletBalance || 0,
+      totalDriversCount: driversAgg._count.id || 0,
+      pendingTopUpsCount: pendingTopUps,
+      approvedTopUpsCount: approvedTopUpsAgg._count.id || 0,
+      approvedTopUpsTotal: approvedTopUpsAgg._sum.amount || 0,
+      completedTripsCount: tripsAgg._count.id || 0,
+      totalTripsVolume: tripsAgg._sum.finalFare || 0,
+    });
+  } catch (error) {
+    logger.error('Failed to fetch finances summary', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to fetch finances summary' });
+  }
+};
+
+export const getSupportTickets = (req, res) => {
+  try {
+    const { status, search } = req.query;
+    const tickets = supportService.getTickets({ status, search });
+    const stats = supportService.getStats();
+    res.json({ tickets, stats });
+  } catch (error) {
+    logger.error('Failed to get support tickets', { error: error.message });
+    res.status(500).json({ error: 'Failed to get support tickets' });
+  }
+};
+
+export const updateSupportTicket = (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminReply } = req.body;
+    const updated = supportService.updateTicket(id, { status, adminReply });
+    if (!updated) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    res.json({ message: 'Ticket updated successfully', ticket: updated });
+  } catch (error) {
+    logger.error('Failed to update support ticket', { error: error.message });
+    res.status(500).json({ error: 'Failed to update support ticket' });
   }
 };
 
@@ -344,6 +568,12 @@ export const adminRejectOrder = async (req, res) => {
         type: 'order_rejected',
         orderId: orderId,
       },
+    });
+
+    emitOrderStatusChanged({
+      orderId,
+      status: 'COMPANY_REJECTED',
+      reason: reason || null,
     });
 
     res.json({ message: 'Order rejected', order: updatedOrder });
