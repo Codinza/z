@@ -463,263 +463,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
   }
 
-  Future<void> _acceptTrip(Map<String, dynamic> trip) async {
-    final tripId = (trip['id'] ?? trip['rideId']).toString();
-    setState(() => _isLoading = true);
-    try {
-      final response = await ApiClient().dio.post(
-        '/api/trips/$tripId/accept',
-        data: {'driverId': _driverId, 'offerAmount': trip['fareEstimate']},
-      );
-      if (response.statusCode == 200 && mounted) {
-        final dynamic respRide =
-            (response.data is Map) ? response.data['ride'] : null;
-        final Map<String, dynamic> rideData = (respRide is Map)
-            ? Map<String, dynamic>.from(respRide)
-            : trip;
-
-        final customerPhone = _resolveCustomerPhone(rideData) ??
-            _resolveCustomerPhone(trip);
-
-        final customerName = _resolveCustomerName(rideData);
-
-        final customerImageUrl = (rideData['customerImageUrl'] ??
-                rideData['userImageUrl'] ??
-                trip['customerImageUrl'] ??
-                trip['userImageUrl'])
-            ?.toString();
-
-        final index = _incomingTrips.indexWhere(
-            (item) => (item['id'] ?? item['rideId']).toString() == tripId);
-        if (index != -1) {
-          setState(() {
-            _incomingTrips[index]['status'] = 'accepted';
-            _incomingTrips[index]['customerName'] = customerName;
-            _incomingTrips[index]['userName'] = customerName;
-            if (customerPhone != null) {
-              _incomingTrips[index]['userPhone'] = customerPhone;
-              _incomingTrips[index]['customerPhone'] = customerPhone;
-            }
-          });
-        }
-
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ActiveTripScreen(
-              tripId: tripId,
-              pickupLat: ((rideData['pickupLat'] ?? trip['pickupLat']) as num).toDouble(),
-              pickupLng: ((rideData['pickupLng'] ?? trip['pickupLng']) as num).toDouble(),
-              dropoffLat: ((rideData['dropoffLat'] ?? trip['dropoffLat']) as num?)?.toDouble(),
-              dropoffLng: ((rideData['dropoffLng'] ?? trip['dropoffLng']) as num?)?.toDouble(),
-              pickupAddress: (rideData['pickupAddress'] ?? trip['pickupAddress'])?.toString(),
-              dropoffAddress: (rideData['dropoffAddress'] ?? trip['dropoffAddress'])?.toString(),
-              customerName: customerName,
-              customerPhone: customerPhone,
-              customerImageUrl: customerImageUrl,
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('فشل قبول الطلب: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  void _showTripDetails(Map<String, dynamic> trip) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Container(
-          height: MediaQuery.of(context).size.height * .72,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          decoration: BoxDecoration(
-            color: const Color(0xff121620),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            border: Border.all(color: const Color(0xff1E293B), width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.6),
-                blurRadius: 30,
-                offset: const Offset(0, -10),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Center(
-                child: Container(
-                  width: 48,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xff334155),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xffF97316).withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.receipt_long_rounded,
-                        color: Color(0xffF97316), size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'تفاصيل الرحلة',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded, color: Color(0xff94A3B8)),
-                  )
-                ],
-              ),
-              const SizedBox(height: 12),
-              const Divider(color: Color(0xff1E293B)),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView(
-                  children: [
-                    _detailLine(Icons.person_outline_rounded, 'اسم العميل',
-                        _resolveCustomerName(trip)),
-                    if (trip['status'] == 'pending')
-                      _detailLine(Icons.lock_outline_rounded, 'رقم العميل',
-                          'يظهر بعد قبول الطلب 🔒')
-                    else
-                      _detailLine(Icons.phone_rounded, 'رقم العميل',
-                          _resolveCustomerPhone(trip) ?? 'غير متاح'),
-                    _detailLine(Icons.my_location_rounded, 'نقطة الاستلام (الانطلاق)',
-                        trip['pickupAddress']?.toString() ?? 'غير محدد'),
-                    _detailLine(Icons.flag_rounded, 'نقطة التسليم (الوجهة)',
-                        trip['dropoffAddress']?.toString() ?? 'غير محدد'),
-                    _detailLine(Icons.route_rounded, 'المسافة التقديرية',
-                        '${trip['distanceKm'] ?? 0} كم'),
-                    _detailLine(Icons.payments_rounded, 'السعر المقترح',
-                        '${trip['fareEstimate'] ?? 0} ج.م'),
-                    _detailLine(Icons.local_taxi_rounded, 'نوع الخدمة',
-                        trip['tripType']?.toString() ?? 'حجز فوري'),
-                    if (trip['notes'] != null && trip['notes'].toString().isNotEmpty)
-                      _detailLine(
-                          Icons.notes_rounded, 'ملاحظات العميل', trip['notes'].toString()),
-                    if (trip['pickupLat'] != null && trip['pickupLng'] != null)
-                      Container(
-                        margin: const EdgeInsets.only(top: 8, bottom: 12),
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => DriverTripRouteMapScreen(
-                                  trip: trip,
-                                  driverPosition: _currentDriverPosition,
-                                  onAccept: () {
-                                    Navigator.pop(context);
-                                    _acceptTrip(trip);
-                                  },
-                                ),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.map_rounded,
-                              color: Color(0xff06B6D4), size: 20),
-                          label: const Text(
-                            'عرض المسار والمسافات على الخريطة 🗺️',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: Colors.white,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xff1E293B),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              side: const BorderSide(
-                                  color: Color(0xff06B6D4), width: 1.0),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _detailLine(IconData icon, String label, String value) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xff161B26),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xff1E293B)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xffF97316).withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: const Color(0xffF97316), size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Color(0xff94A3B8),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-
   Future<void> _updateTripStatus(String tripId, String status) async {
     setState(() => _isLoading = true);
     try {
@@ -768,6 +511,32 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           customerName: _resolveCustomerName(trip),
           customerPhone: _resolveCustomerPhone(trip),
           customerImageUrl: (trip['customerImageUrl'] ?? trip['userImageUrl'])?.toString(),
+        ),
+      ),
+    );
+  }
+
+  void _openRouteMapScreen(Map<String, dynamic> trip) {
+    final tripId = (trip['id'] ?? trip['rideId']).toString();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DriverTripRouteMapScreen(
+          trip: trip,
+          driverPosition: _currentDriverPosition,
+          onSubmitOffer: (amount) async {
+            await _submitOffer(tripId, amount);
+            if (mounted) {
+              setState(() {
+                final idx = _incomingTrips.indexWhere(
+                    (t) => (t['id'] ?? t['rideId']).toString() == tripId);
+                if (idx != -1) {
+                  _incomingTrips[idx]['offerSent'] = true;
+                }
+              });
+            }
+          },
+          isOfferSent: trip['offerSent'] == true,
         ),
       ),
     );
@@ -1461,21 +1230,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 // Map preview if coordinates are available (Clickable to view distances & full route)
                 if (trip['pickupLat'] != null && trip['pickupLng'] != null)
                   GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => DriverTripRouteMapScreen(
-                            trip: trip,
-                            driverPosition: _currentDriverPosition,
-                            onAccept: () {
-                              Navigator.pop(context);
-                              _acceptTrip(trip);
-                            },
-                          ),
-                        ),
-                      );
-                    },
+                    onTap: () => _openRouteMapScreen(trip),
                     child: Container(
                     height: 185,
                     margin: const EdgeInsets.only(bottom: 14),
@@ -1805,21 +1560,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             child: Material(
                               color: Colors.transparent,
                               child: InkWell(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => DriverTripRouteMapScreen(
-                                        trip: trip,
-                                        driverPosition: _currentDriverPosition,
-                                        onAccept: () {
-                                          Navigator.pop(context);
-                                          _acceptTrip(trip);
-                                        },
-                                      ),
-                                    ),
-                                  );
-                                },
+                                onTap: () => _openRouteMapScreen(trip),
                               ),
                             ),
                           ),
@@ -1834,9 +1575,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Quick Counter-Offer Box
+                      // Counter Offer & Action Section (Driver sends offers only; customer accepts)
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
                           color: const Color(0xff161B26),
                           borderRadius: BorderRadius.circular(16),
@@ -1845,16 +1587,38 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'تقديم عرض سعر مخصص (اختياري):',
-                              style: TextStyle(
-                                color: Color(0xff94A3B8),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'تقديم عرض سعر للعميل:',
+                                  style: TextStyle(
+                                    color: Color(0xff94A3B8),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xffF97316)
+                                        .withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    'المقترح: ${fareEstimate.toStringAsFixed(0)} ج.م',
+                                    style: const TextStyle(
+                                      color: Color(0xffF97316),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 8),
-                            // Quick Increment Pills
+                            const SizedBox(height: 10),
+                            // Quick Increment Chips (+10, +20, +50)
                             Row(
                               children: [
                                 _quickAddChip(controller, 10, fareEstimate),
@@ -1864,174 +1628,163 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                 _quickAddChip(controller, 50, fareEstimate),
                               ],
                             ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  flex: 3,
-                                  child: Container(
-                                    height: 48,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xff0B0E14),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                          color: const Color(0xff334155)),
-                                    ),
-                                    child: TextField(
-                                      controller: controller,
-                                      keyboardType: TextInputType.number,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 15,
-                                      ),
-                                      decoration: const InputDecoration(
-                                        hintText: 'السعر (ج.م)',
-                                        hintStyle: TextStyle(
-                                            color: Color(0xff64748B),
-                                            fontSize: 13),
-                                        border: InputBorder.none,
-                                        contentPadding: EdgeInsets.symmetric(
-                                            horizontal: 14, vertical: 12),
-                                      ),
-                                      enabled: trip['offerSent'] != true,
-                                    ),
-                                  ),
+                            const SizedBox(height: 12),
+                            // Price Input
+                            Container(
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: const Color(0xff0B0E14),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                    color: const Color(0xff334155)),
+                              ),
+                              child: TextField(
+                                controller: controller,
+                                keyboardType: TextInputType.number,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  flex: 2,
-                                  child: SizedBox(
-                                    height: 48,
-                                    child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: trip['offerSent'] == true
-                                            ? const Color(0xff334155)
-                                            : const Color(0xffF97316),
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                      onPressed: trip['offerSent'] == true
-                                          ? null
-                                          : () async {
-                                              final amount = double.tryParse(
-                                                      controller?.text ?? '') ??
-                                                  fareEstimate;
-                                              if (!context.mounted) return;
-                                              await _submitOffer(tripId, amount);
-                                              if (mounted) {
-                                                setState(() {
-                                                  final idx = _incomingTrips
-                                                      .indexWhere((t) =>
-                                                          (t['id'] ??
-                                                                  t['rideId'])
-                                                              .toString() ==
-                                                          tripId);
-                                                  if (idx != -1) {
-                                                    _incomingTrips[idx]
-                                                        ['offerSent'] = true;
-                                                  }
-                                                });
-                                              }
-                                            },
-                                      child: Text(
-                                        trip['offerSent'] == true
-                                            ? 'في الانتظار'
-                                            : 'إرسال العرض',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ),
+                                textAlign: TextAlign.center,
+                                decoration: const InputDecoration(
+                                  hintText: 'السعر بالجنيه',
+                                  hintStyle: TextStyle(
+                                      color: Color(0xff64748B),
+                                      fontSize: 13),
+                                  suffixText: 'ج.م',
+                                  suffixStyle: TextStyle(
+                                    color: Color(0xffF97316),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
                                   ),
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 12),
                                 ),
-                              ],
+                                enabled: trip['offerSent'] != true,
+                              ),
                             ),
+                            const SizedBox(height: 12),
+                            // Send Offer or Waiting Status
+                            if (trip['offerSent'] == true)
+                              Container(
+                                width: double.infinity,
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xff1A2332),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                      color: const Color(0xffF59E0B)
+                                          .withOpacity(0.6)),
+                                ),
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.hourglass_top_rounded,
+                                        color: Color(0xffF59E0B), size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'تم إرسال عرضك (${controller?.text ?? ''} ج.م) • في انتظار قبول العميل ⏳',
+                                      style: const TextStyle(
+                                        color: Color(0xffF59E0B),
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
+                              PressableScale(
+                                onTap: () async {
+                                  final amount = double.tryParse(
+                                          controller?.text ?? '') ??
+                                      fareEstimate;
+                                  if (!context.mounted) return;
+                                  await _submitOffer(tripId, amount);
+                                  if (mounted) {
+                                    setState(() {
+                                      final idx = _incomingTrips.indexWhere(
+                                          (t) =>
+                                              (t['id'] ?? t['rideId'])
+                                                  .toString() ==
+                                              tripId);
+                                      if (idx != -1) {
+                                        _incomingTrips[idx]['offerSent'] = true;
+                                      }
+                                    });
+                                  }
+                                },
+                                child: Container(
+                                  width: double.infinity,
+                                  height: 50,
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [
+                                        Color(0xffF97316),
+                                        Color(0xffEA580C)
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xffF97316)
+                                            .withOpacity(0.35),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.send_rounded,
+                                          color: Colors.white, size: 20),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'إرسال العرض للعميل',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-
-                      // Main Accept and Details Buttons
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: Container(
-                              height: 50,
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    Color(0xffF97316),
-                                    Color(0xffEA580C)
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xffF97316)
-                                        .withOpacity(0.35),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: ElevatedButton.icon(
-                                onPressed: () => _acceptTrip(trip),
-                                icon: const Icon(Icons.check_circle_rounded,
-                                    size: 20, color: Colors.white),
-                                label: const Text(
-                                  'قبول الطلب فوراً',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                              ),
+                      const SizedBox(height: 10),
+                      // Details & Map button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 44,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _openRouteMapScreen(trip),
+                          icon: const Icon(Icons.map_rounded, size: 18),
+                          label: const Text(
+                            'معاينة المسار والخريطة بالتفصيل 🗺️',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13.5,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            flex: 2,
-                            child: SizedBox(
-                              height: 50,
-                              child: OutlinedButton.icon(
-                                onPressed: () => _showTripDetails(trip),
-                                icon: const Icon(Icons.visibility_rounded,
-                                    size: 18),
-                                label: const Text(
-                                  'التفاصيل',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xffF97316),
-                                  side: const BorderSide(
-                                    color: Color(0xffF97316),
-                                    width: 1.2,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                              ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xff06B6D4),
+                            side: const BorderSide(
+                              color: Color(0xff06B6D4),
+                              width: 1.1,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ],
                   )

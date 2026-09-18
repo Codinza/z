@@ -3,17 +3,20 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../core/widgets/animations/pressable_scale.dart';
 
 class DriverTripRouteMapScreen extends StatefulWidget {
   final Map<String, dynamic> trip;
   final Position? driverPosition;
-  final VoidCallback? onAccept;
+  final Future<void> Function(double amount)? onSubmitOffer;
+  final bool isOfferSent;
 
   const DriverTripRouteMapScreen({
     super.key,
     required this.trip,
     this.driverPosition,
-    this.onAccept,
+    this.onSubmitOffer,
+    this.isOfferSent = false,
   });
 
   @override
@@ -145,6 +148,162 @@ class _DriverTripRouteMapScreenState extends State<DriverTripRouteMapScreen> {
         ),
       );
     }
+  }
+
+  void _showOfferBottomSheet() {
+    final fare = _fareEstimate > 0 ? _fareEstimate : 20.0;
+    final controller = TextEditingController(text: fare.toStringAsFixed(0));
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xff121620),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xff334155),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Text(
+                  'تقديم عرض سعر للعميل',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'السعر المقترح للرحلة: ${fare.toStringAsFixed(0)} ج.م',
+                  style: const TextStyle(
+                    color: Color(0xff94A3B8),
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [10, 20, 50].map((inc) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: ActionChip(
+                        backgroundColor: const Color(0xff1E293B),
+                        side: const BorderSide(color: Color(0xff334155)),
+                        label: Text(
+                          '+$inc ج.م',
+                          style: const TextStyle(
+                            color: Color(0xffF97316),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                        onPressed: () {
+                          final cur = double.tryParse(controller.text) ?? fare;
+                          controller.text = (cur + inc).toStringAsFixed(0);
+                          setSheetState(() {});
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: const Color(0xff0B0E14),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xff334155)),
+                  ),
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                    ),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      suffixText: 'ج.م ',
+                      suffixStyle: TextStyle(
+                        color: Color(0xffF97316),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                PressableScale(
+                  onTap: () async {
+                    final entered = double.tryParse(controller.text) ?? fare;
+                    final nav = Navigator.of(context);
+                    Navigator.pop(ctx);
+                    if (widget.onSubmitOffer != null) {
+                      await widget.onSubmitOffer!(entered);
+                    }
+                    if (!mounted) return;
+                    nav.pop();
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xffF97316), Color(0xffEA580C)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xffF97316).withOpacity(0.35),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'إرسال العرض للعميل',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _centerOnDriver() {
@@ -819,51 +978,79 @@ class _DriverTripRouteMapScreenState extends State<DriverTripRouteMapScreen> {
 
                       const SizedBox(height: 12),
 
-                      // Bottom Action Button (Accept Trip)
-                      if (widget.onAccept != null)
-                        Container(
-                          width: double.infinity,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [
-                                Color(0xffF97316),
-                                Color(0xffEA580C)
+                      // Bottom Action: Submit Offer (Driver can only send offers, customer accepts)
+                      if (widget.onSubmitOffer != null)
+                        if (widget.isOfferSent)
+                          Container(
+                            width: double.infinity,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: const Color(0xff161B26),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                  color: const Color(0xffF59E0B)
+                                      .withOpacity(0.6)),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.hourglass_top_rounded,
+                                    color: Color(0xffF59E0B), size: 18),
+                                SizedBox(width: 8),
+                                Text(
+                                  'تم إرسال عرضك • في انتظار موافقة العميل ⏳',
+                                  style: TextStyle(
+                                    color: Color(0xffF59E0B),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
                               ],
                             ),
-                            borderRadius: BorderRadius.circular(14),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xffF97316)
-                                    .withOpacity(0.35),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: ElevatedButton.icon(
-                            onPressed: widget.onAccept,
-                            icon: const Icon(
-                                Icons.check_circle_outline_rounded,
-                                color: Colors.white,
-                                size: 20),
-                            label: const Text(
-                              'قبول الطلب فوراً',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent,
-                              shape: RoundedRectangleBorder(
+                          )
+                        else
+                          PressableScale(
+                            onTap: _showOfferBottomSheet,
+                            child: Container(
+                              width: double.infinity,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xffF97316),
+                                    Color(0xffEA580C)
+                                  ],
+                                ),
                                 borderRadius: BorderRadius.circular(14),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xffF97316)
+                                        .withOpacity(0.35),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                              ),
+                              alignment: Alignment.center,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.send_rounded,
+                                      color: Colors.white, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'تقديم عرض سعر للعميل (${_fareEstimate.toStringAsFixed(0)} ج.م) 🚀',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                        ),
                     ],
                   ),
                 ),

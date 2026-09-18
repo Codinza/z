@@ -286,11 +286,11 @@ class _DispatchAlertBannerState extends State<DispatchAlertBanner>
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.check_rounded,
+                            Icon(Icons.local_offer_rounded,
                                 color: Colors.white, size: 18),
                             SizedBox(width: 6),
                             Text(
-                              'قبول الطلب الآن',
+                              'تقديم عرض للعميل',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
