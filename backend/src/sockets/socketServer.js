@@ -1,5 +1,6 @@
 // Track online drivers
 import { getPendingRides } from '../services/tripService.js';
+import { locationService } from '../services/locationService.js';
 import logger from '../utils/logger.js';
 
 const onlineDrivers = new Map(); // socketId -> driverId
@@ -28,25 +29,27 @@ export function initSocketServer(io) {
       socket.emit('pending_rides_sync', pendingRides);
     });
 
-    socket.on('driver_location_update', (data) => {
-      // Broadcast location to all clients (for demo simplicity, real app would use rooms)
-      io.emit('driver_location_update', data);
-    });
-
-    socket.on('driver:location_update', (data) => {
-      const { driverId, lat, lng, rideId } = data;
-      socket.join(`driver:${driverId}`);
-      
-      // Broadcast location to customers tracking this ride
-      if (rideId) {
-        io.to(`ride:${rideId}`).emit('location_update', {
+    socket.on('driver_location_update', async (data) => {
+      const { driverId, lat, lng, rideId, orderId } = data || {};
+      if (driverId != null && lat != null && lng != null) {
+        try {
+          await locationService.updateDriverLocation(driverId, { lat, lng });
+        } catch (error) {
+          logger.warn('Failed to persist driver socket location', { error: error.message });
+        }
+      }
+      if (driverId != null) socket.join(`driver:${driverId}`);
+      if (rideId || orderId) {
+        io.to(`ride:${rideId || orderId}`).emit('location_update', {
           driverId,
           lat,
           lng,
-          rideId,
+          rideId: rideId || orderId,
+          orderId: orderId || rideId,
           timestamp: new Date().toISOString(),
         });
       }
+      
     });
 
     socket.on('customer:track_trip', (rideId) => {

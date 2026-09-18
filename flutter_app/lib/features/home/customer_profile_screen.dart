@@ -97,9 +97,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                               Container(
                                 width: 100,
                                 height: 100,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: const Color(0xffF97316),
+                                  color: Color(0xffF97316),
                                 ),
                                 child: const Center(
                                   child: Icon(Icons.person, size: 60, color: Colors.white),
@@ -312,7 +312,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
             Expanded(
               child: Text(label, style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500)),
             ),
-            Icon(Icons.chevron_left, color: const Color(0xff666666), size: 20),
+            const Icon(Icons.chevron_left, color: Color(0xff666666), size: 20),
           ],
         ),
       ),

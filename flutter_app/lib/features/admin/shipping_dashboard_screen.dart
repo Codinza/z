@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import '../../features/auth/auth_service.dart';
 import '../../core/config/app_config.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/widgets/animations/zoon_animations.dart';
 import '../../app.dart';
 
 class ShippingDashboardScreen extends StatefulWidget {
@@ -237,7 +238,13 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
           ],
         ),
         body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(
+                child: ZoonRiveLoading(
+                  size: 80,
+                  message: 'جاري تحميل شحنات الشركة...',
+                  color: Color(0xff123B5D),
+                ),
+              )
             : _error != null
                 ? Center(
                     child: Column(
@@ -281,7 +288,11 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
                                 child: Row(children: [
                                   const Icon(Icons.notifications_active_outlined, color: Color(0xffD97706), size: 20),
                                   const SizedBox(width: 8),
-                                  Text('$newCount جديد', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xff92400E))),
+                                  AnimatedCounterText(
+                                    value: newCount,
+                                    suffix: 'جديد',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xff92400E)),
+                                  ),
                                 ]),
                               ),
                             ],
@@ -329,14 +340,13 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
     );
   }
 
-  Widget _buildEmptyState() => Container(
-        padding: const EdgeInsets.all(34),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xffE4EAF0))),
-        child: Column(children: [
-          const Icon(Icons.inbox_outlined, size: 48, color: Color(0xffA8B6C5)),
-          const SizedBox(height: 12),
-          Text('لا توجد طلبات في هذا التبويب', style: TextStyle(color: Colors.blueGrey.shade600, fontWeight: FontWeight.w600)),
-        ]),
+  Widget _buildEmptyState() => ZoonEmptyState(
+        title: 'لا توجد طلبات في هذا التبويب',
+        subtitle: 'سيتم تحديث القائمة تلقائياً عند وصول شحنات جديدة',
+        icon: Icons.local_shipping_outlined,
+        actionLabel: 'تحديث الشحنات الآن',
+        onAction: _fetchShippingData,
+        accentColor: const Color(0xff123B5D),
       );
 
   Future<void> _adminAcceptOrder(String orderId) async {
@@ -643,10 +653,12 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
     final dropoffLat = order['shippingDropoffLat'] != null ? (order['shippingDropoffLat'] as num).toDouble() : null;
     final dropoffLng = order['shippingDropoffLng'] != null ? (order['shippingDropoffLng'] as num).toDouble() : null;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return PressableScale(
+      scaleFactor: 0.98,
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -863,8 +875,9 @@ class _ShippingDashboardScreenState extends State<ShippingDashboardScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _metaItem(IconData icon, String text) {
     return Row(

@@ -10,6 +10,7 @@ import 'features/admin/shipping_dashboard_screen.dart';
 import 'features/admin/admin_dashboard_screen.dart';
 import 'features/admin/super_admin_screen.dart';
 import 'features/intro/intro_video_screen.dart';
+import 'core/widgets/animations/zoon_animations.dart';
 
 const String appType = String.fromEnvironment('APP_TYPE', defaultValue: '');
 
@@ -56,6 +57,12 @@ class RideFlowApp extends StatelessWidget {
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           ),
+        ),
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: LogisticsPageTransitionsBuilder(),
+            TargetPlatform.iOS: LogisticsPageTransitionsBuilder(),
+          },
         ),
         useMaterial3: true,
       ),

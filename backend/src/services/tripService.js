@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { calculateDistanceKm, estimateFare, getSurgeMultiplier, calculateDriverOffer } from './mapsService.js';
+import { calculateDistanceKm, estimateFare, getSurgeMultiplier, calculateDriverOffer, isWithinEgypt } from './mapsService.js';
 import { tripRepository } from '../repositories/tripRepository.js';
 import { driverRepository } from '../repositories/driverRepository.js';
 import { prisma } from '../db/prisma.js';
@@ -163,6 +163,11 @@ class TripService {
     const { pickupAddress, dropoffAddress, pickupLat, pickupLng, dropoffLat, dropoffLng, userId, proposedFare, areaType, vehicleType, tripType, notes } = payload;
     if (!pickupAddress || !dropoffAddress) {
       throw new Error('pickupAddress and dropoffAddress are required');
+    }
+
+    if (!isWithinEgypt(pickupLat, pickupLng) ||
+        !isWithinEgypt(dropoffLat, dropoffLng)) {
+      throw new Error('الخدمة متاحة داخل مصر فقط');
     }
 
     const distanceKm = calculateDistanceKm({ pickupLat, pickupLng, dropoffLat, dropoffLng });

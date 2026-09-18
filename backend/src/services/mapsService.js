@@ -1,5 +1,14 @@
 const toRadians = (deg) => (deg * Math.PI) / 180;
 
+// Approximate mainland Egypt bounds used to keep service operations in Egypt.
+export function isWithinEgypt(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  return Number.isFinite(latitude) && Number.isFinite(longitude) &&
+    latitude >= 22 && latitude <= 31.7 &&
+    longitude >= 24 && longitude <= 37;
+}
+
 export async function getGoogleDirections({ origin, destination }) {
   if (!origin || !destination) {
     throw new Error('Origin and destination are required');

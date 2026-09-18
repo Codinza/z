@@ -923,33 +923,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     }
   }
 
-  int _statusStepIndex(String? status) {
-    switch (status?.toUpperCase()) {
-      case 'PRICE_SENT':
-        return 1;
-      case 'COMPANY_ACCEPTED':
-      case 'CUSTOMER_APPROVED':
-      case 'ACCEPTED':
-      case 'DRIVER_ACCEPTED':
-      case 'ASSIGNED':
-        return 1;
-      case 'ARRIVED':
-      case 'CONFIRMED':
-      case 'STARTED':
-      case 'IN_PROGRESS':
-      case 'IN_TRANSIT':
-      case 'ON_THE_WAY':
-        return 2;
-      case 'COMPLETED':
-        return 3;
-      case 'CUSTOMER_REJECTED':
-      case 'CANCELLED':
-        return 0;
-      default:
-        return 0;
-    }
-  }
-
   Color _statusColor(String? status) {
     switch (status?.toUpperCase()) {
       case 'PRICE_SENT':
@@ -1522,82 +1495,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildTimeline(String? status) {
-    const stages = ['تم الطلب', 'الموافقة', 'قيد التنفيذ', 'مكتمل'];
-    final currentIndex = _statusStepIndex(status);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      decoration: BoxDecoration(
-        color: const Color(0xff1A1D21),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xff2A2D33), width: 1),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: List.generate(stages.length, (index) {
-              final isReached = index <= currentIndex;
-              final isCurrent = index == currentIndex;
-
-              return Expanded(
-                child: Row(
-                  children: [
-                    Container(
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isReached
-                            ? const Color(0xffF97316)
-                            : const Color(0xff2A2D33),
-                        border: isCurrent
-                            ? Border.all(color: Colors.white, width: 2)
-                            : null,
-                      ),
-                      child: Center(
-                        child: isReached
-                            ? const Icon(Icons.check,
-                                color: Colors.white, size: 14)
-                            : Text(
-                                '${index + 1}',
-                                style: const TextStyle(
-                                    color: Color(0xff64748B),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold),
-                              ),
-                      ),
-                    ),
-                    if (index < stages.length - 1)
-                      Expanded(
-                        child: Container(
-                          height: 2.5,
-                          color: index < currentIndex
-                              ? const Color(0xffF97316)
-                              : const Color(0xff2A2D33),
-                        ),
-                      ),
-                  ],
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: stages.asMap().entries.map((e) {
-              final isReached = e.key <= currentIndex;
-              return Text(
-                e.value,
-                style: TextStyle(
-                  color: isReached ? Colors.white : const Color(0xff64748B),
-                  fontSize: 11,
-                  fontWeight: isReached ? FontWeight.w600 : FontWeight.normal,
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
+    final isShipping = _order?['serviceType'] == 'SHIPPING';
+    return LogisticsTimelineStepper(
+      currentStatus: status,
+      isShipping: isShipping,
+      primaryColor: const Color(0xffF97316),
     );
   }
 
@@ -2005,8 +1907,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      '$offerPrice ج.م',
+                    AnimatedCounterText(
+                      value: double.tryParse(offerPrice) ?? 0,
+                      suffix: 'ج.م',
                       style: const TextStyle(
                         color: Color(0xffF97316),
                         fontSize: 18,
@@ -2024,24 +1927,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               // Reject Button
               Expanded(
                 flex: 2,
-                child: SizedBox(
-                  height: 44,
-                  child: OutlinedButton.icon(
-                    onPressed: _rejectOrderPrice,
-                    icon: const Icon(Icons.close_rounded,
-                        color: Color(0xffEF4444), size: 18),
-                    label: const Text(
-                      'رفض العرض',
-                      style: TextStyle(
-                        color: Color(0xffEF4444),
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
+                child: PressableScale(
+                  scaleFactor: 0.96,
+                  child: SizedBox(
+                    height: 44,
+                    child: OutlinedButton.icon(
+                      onPressed: _rejectOrderPrice,
+                      icon: const Icon(Icons.close_rounded,
+                          color: Color(0xffEF4444), size: 18),
+                      label: const Text(
+                        'رفض العرض',
+                        style: TextStyle(
+                          color: Color(0xffEF4444),
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xffEF4444)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xffEF4444)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),
@@ -2051,26 +1957,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               // Accept Button
               Expanded(
                 flex: 3,
-                child: SizedBox(
-                  height: 44,
-                  child: ElevatedButton.icon(
-                    onPressed: _approveOrderPrice,
-                    icon: const Icon(Icons.check_rounded,
-                        color: Colors.white, size: 18),
-                    label: const Text(
-                      'قبول السعر',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
+                child: PressableScale(
+                  scaleFactor: 0.96,
+                  child: SizedBox(
+                    height: 44,
+                    child: ElevatedButton.icon(
+                      onPressed: _approveOrderPrice,
+                      icon: const Icon(Icons.check_rounded,
+                          color: Colors.white, size: 18),
+                      label: const Text(
+                        'قبول السعر',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xff22C55E),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xff22C55E),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),

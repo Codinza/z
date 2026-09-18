@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../../core/widgets/animations/zoon_animations.dart';
 import '../admin_service.dart';
 
 class FinancesTab extends StatefulWidget {
@@ -260,8 +261,9 @@ class _FinancesTabState extends State<FinancesTab> {
                 ),
                 child: Icon(icon, color: color, size: 20),
               ),
-              Text(
-                value,
+              AnimatedCounterText(
+                value: double.tryParse(value.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0,
+                suffix: value.contains('ج.م') ? 'ج.م' : null,
                 style: TextStyle(
                   color: color,
                   fontWeight: FontWeight.bold,

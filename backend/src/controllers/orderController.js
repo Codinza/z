@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { emitOrderStatusChanged } from '../services/tripService.js';
+import { isWithinEgypt } from '../services/mapsService.js';
 import logger from '../utils/logger.js';
 const prisma = new PrismaClient();
 
@@ -29,6 +30,11 @@ export const createLimousineOrder = async (req, res) => {
       return res.status(400).json({
         error: 'Pickup address, dropoff address, and offer price are required',
       });
+    }
+
+    if (!isWithinEgypt(pickupLat, pickupLng) ||
+        !isWithinEgypt(dropoffLat, dropoffLng)) {
+      return res.status(400).json({ error: 'الخدمة متاحة داخل مصر فقط' });
     }
 
     const order = await prisma.order.create({
@@ -129,6 +135,11 @@ export const createShippingOrder = async (req, res) => {
       return res.status(400).json({
         error: 'Pickup address, dropoff address, and offer price are required',
       });
+    }
+
+    if (!isWithinEgypt(pickupLat, pickupLng) ||
+        !isWithinEgypt(dropoffLat, dropoffLng)) {
+      return res.status(400).json({ error: 'الخدمة متاحة داخل مصر فقط' });
     }
 
     const order = await prisma.order.create({

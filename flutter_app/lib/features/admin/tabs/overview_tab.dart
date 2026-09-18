@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/animations/zoon_animations.dart';
 
 class OverviewTab extends StatelessWidget {
   final int onlineDriversCount;
@@ -237,11 +238,13 @@ class OverviewTab extends StatelessWidget {
                 ),
                 child: Icon(icon, color: color, size: 20),
               ),
-              Text(value,
-                  style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: color)),
+              AnimatedCounterText(
+                value: double.tryParse(value) ?? 0,
+                style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: color),
+              ),
             ],
           ),
           Text(
@@ -285,9 +288,11 @@ class OverviewTab extends StatelessWidget {
         ),
         child: Column(
           children: [
-            Text('$count',
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+            AnimatedCounterText(
+              value: count,
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.bold, color: color),
+            ),
             const SizedBox(height: 2),
             Text(label,
                 style: TextStyle(fontSize: 10, color: color.withOpacity(0.8)),

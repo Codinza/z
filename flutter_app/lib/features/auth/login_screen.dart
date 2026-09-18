@@ -7,14 +7,119 @@ import '../admin/super_admin_screen.dart';
 import '../home/customer_main_screen.dart';
 import '../driver/driver_main_screen.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: Container(
+              color: const Color(0xfff36b18),
+              alignment: Alignment.topCenter,
+              child: Image.asset(
+                'assets/zoon_login_background.jpeg',
+                width: double.infinity,
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    const Color(0xfff36b18).withOpacity(.9),
+                    const Color(0xfff36b18),
+                  ],
+                  stops: const [.6, .82, 1],
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+              child: Column(
+                children: [
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.58),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.white.withOpacity(.22)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'مرحباً بك',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'اختار طريقة المتابعة',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white.withOpacity(.78), fontSize: 14),
+                        ),
+                        const SizedBox(height: 18),
+                        ElevatedButton(
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const LoginFormScreen()),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xffff7e5f),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                          child: const Text('تسجيل الدخول', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton(
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white, width: 1.2),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                          child: const Text('إنشاء حساب', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class LoginFormScreen extends StatefulWidget {
+  const LoginFormScreen({super.key});
+
+  @override
+  State<LoginFormScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginFormScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
@@ -91,12 +196,26 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          color: Color(0xFFff6b35),
-        ),
-        child: SafeArea(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/zoon_login_background.jpeg',
+            fit: BoxFit.cover,
+          ),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withOpacity(0.04),
+                  Colors.black.withOpacity(0.22),
+                ],
+              ),
+            ),
+          ),
+          SafeArea(
           child: Directionality(
             textDirection: TextDirection.rtl,
             child: Center(
@@ -105,16 +224,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text(
-                      'Zoon',
-                      style: TextStyle(
-                        fontSize: 42,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                    const SizedBox(height: 48),
                     Container(
                       padding: const EdgeInsets.all(32),
                       decoration: BoxDecoration(
@@ -152,9 +261,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 32),
                           Container(
                             decoration: BoxDecoration(
-                              color: Colors.grey[50],
+                              color: Colors.transparent,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.grey[200]!),
+                              border: Border.all(color: Colors.grey[400]!),
                             ),
                             child: TextField(
                               controller: _phoneController,
@@ -170,9 +279,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 20),
                           Container(
                             decoration: BoxDecoration(
-                              color: Colors.grey[50],
+                              color: Colors.transparent,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.grey[200]!),
+                              border: Border.all(color: Colors.grey[400]!),
                             ),
                             child: TextField(
                               controller: _passwordController,
@@ -194,69 +303,59 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 24),
-                          Container(
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFFff7e5f), Color(0xFFff6b35)],
-                              ),
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFFff7e5f).withOpacity(0.4),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 10),
-                                ),
-                              ],
-                            ),
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _login,
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 18),
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 24,
-                                      width: 24,
-                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
-                                    )
-                                  : const Text(
-                                      'تسجيل الدخول',
-                                      style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
-                                    ),
-                            ),
-                          ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 32),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                        );
-                      },
-                      child: Text(
-                        'ليس لديك حساب؟ سجل الآن',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.95),
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white, width: 1.2),
+                              padding: const EdgeInsets.symmetric(vertical: 15),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            child: const Text('إنشاء حساب', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _login,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xffff7e5f),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 15),
+                              elevation: 8,
+                              shadowColor: const Color(0xffff7e5f).withOpacity(.45),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 22,
+                                    width: 22,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                                  )
+                                : const Text('تسجيل الدخول', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
           ),
-        ),
+          ),
+        ],
       ),
     );
   }

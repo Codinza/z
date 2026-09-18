@@ -1,0 +1,10 @@
+﻿<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="flutter.access_token">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNtdTZldjQxOTAwMDlsNzJkdjZpaGR0OHgiLCJyb2xlIjoiZHJpdmVyIiwiZW1haWwiOm51bGwsImlhdCI6MTc4OTcwMjg0NSwiZXhwIjoxNzkwMzA3NjQ1fQ.HmFEesVk7wBFc9_y-Dn0muqJKvOXjRWeaw77q5iMQRQ</string>
+    <string name="flutter.refresh_token">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNtdTZldjQxOTAwMDlsNzJkdjZpaGR0OHgiLCJpYXQiOjE3ODk3MDI4NDUsImV4cCI6MTc5MjI5NDg0NX0.T7JCQAwReyesvJCEq-FVh1rxjxKSVhDLC30ARHYp4YI</string>
+    <string name="flutter.user_id">cmu6ev4190009l72dv6ihdt8x</string>
+    <string name="flutter.user_role">driver</string>
+    <string name="flutter.user_name">كابتن أحمد</string>
+    <string name="flutter.user_phone">01099882299</string>
+    <string name="flutter.driver_status">pending</string>
+</map>

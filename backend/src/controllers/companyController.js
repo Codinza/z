@@ -533,6 +533,12 @@ export const rejectOrder = async (req, res) => {
       },
     });
 
+    emitOrderStatusChanged({
+      orderId,
+      status: 'COMPANY_REJECTED',
+      reason: reason || null,
+    });
+
     res.json({
       message: 'Order rejected',
       order: updatedOrder,

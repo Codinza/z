@@ -12,6 +12,7 @@ import '../../core/network/api_client.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/config/app_config.dart';
 import '../../core/services/location_service.dart';
+import '../../core/widgets/animations/zoon_animations.dart';
 
 class ActiveTripScreen extends StatefulWidget {
   final String tripId;
@@ -58,13 +59,17 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   Duration _waitingDuration = Duration.zero;
   bool _isUpdatingStatus = false;
   bool _hudVisible = true;
+  bool _showConfirmDestination = false;
 
   static const Map<String, Map<String, String>> _knownCustomers = {
     'cmtbv7t8k0000uuf4tbq7ywtj': {'name': 'أيمن', 'phone': '01273381289'},
     'cmtj4htm40006ip1v2064d90p': {'name': 'أيمن', 'phone': '01273381280'},
     'cmtbvd7gd0000uuv0k4cmlv8g': {'name': 'أيمن', 'phone': '01104378091'},
     'cmtw44ylm002be41v9kydho0z': {'name': 'محمد السيد', 'phone': '01221633453'},
-    'cmtuknm670000hz1vkpwiducr': {'name': 'جني محمد السيد', 'phone': '01210467498'},
+    'cmtuknm670000hz1vkpwiducr': {
+      'name': 'جني محمد السيد',
+      'phone': '01210467498'
+    },
     'cmtw19ixg0000e41v60vb5t3h': {'name': 'أيمن', 'phone': '01505175915'},
   };
 
@@ -84,8 +89,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
       return rawName;
     }
 
-    final userId =
-        (tripData?['userId'] ?? tripData?['customerId'])?.toString();
+    final userId = (tripData?['userId'] ?? tripData?['customerId'])?.toString();
     if (userId != null && _knownCustomers.containsKey(userId)) {
       return _knownCustomers[userId]!['name']!;
     }
@@ -114,8 +118,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
       return direct;
     }
 
-    final userId =
-        (tripData?['userId'] ?? tripData?['customerId'])?.toString();
+    final userId = (tripData?['userId'] ?? tripData?['customerId'])?.toString();
     if (userId != null && _knownCustomers.containsKey(userId)) {
       return _knownCustomers[userId]!['phone'];
     }
@@ -177,7 +180,9 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   }
 
   Future<void> _callCustomer() async {
-    final phone = _resolveCustomerPhone() ?? _customerPhone?.trim() ?? widget.customerPhone?.trim();
+    final phone = _resolveCustomerPhone() ??
+        _customerPhone?.trim() ??
+        widget.customerPhone?.trim();
     if (phone == null || phone.isEmpty) return;
     final uri = Uri.parse('tel:$phone');
     try {
@@ -190,7 +195,9 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   }
 
   Future<void> _whatsappCustomer() async {
-    final phone = _resolveCustomerPhone() ?? _customerPhone?.trim() ?? widget.customerPhone?.trim();
+    final phone = _resolveCustomerPhone() ??
+        _customerPhone?.trim() ??
+        widget.customerPhone?.trim();
     if (phone == null || phone.isEmpty) return;
     String cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
     if (cleanPhone.startsWith('01') && cleanPhone.length == 11) {
@@ -260,7 +267,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
       _driverToPickupRoute = [];
     }
 
-    if (dropoffLat != null && dropoffLng != null &&
+    if (dropoffLat != null &&
+        dropoffLng != null &&
         (_tripStatus == 'started' || _tripStatus == 'completed')) {
       _routePoints = await _getRoute(
         _driverLocation ?? _pickupLocation,
@@ -304,8 +312,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
             if (resolved != null && resolved.isNotEmpty) {
               _customerPhone = resolved;
             }
-            final name = (tripData['customerName'] ?? tripData['userName'])
-                ?.toString();
+            final name =
+                (tripData['customerName'] ?? tripData['userName'])?.toString();
             if (name != null && name.isNotEmpty) {
               _customerName = name;
             }
@@ -326,7 +334,9 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     setState(() => _isUpdatingStatus = true);
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
-      final response = await ApiClient().dio.post('/api/trips/${widget.tripId}/driver-arrived');
+      final response = await ApiClient()
+          .dio
+          .post('/api/trips/${widget.tripId}/driver-arrived');
       if (response.statusCode == 200 && mounted) {
         setState(() => _tripStatus = 'driver_arrived');
         _startWaitingTimer();
@@ -366,7 +376,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     setState(() => _isUpdatingStatus = true);
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
-      final response = await ApiClient().dio.post('/api/trips/${widget.tripId}/start');
+      final response =
+          await ApiClient().dio.post('/api/trips/${widget.tripId}/start');
       if (response.statusCode == 200 && mounted) {
         setState(() => _tripStatus = 'started');
         _waitingTimer?.cancel();
@@ -427,8 +438,10 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   }
 
   String _formatWaitingDuration() {
-    final minutes = _waitingDuration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = _waitingDuration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final minutes =
+        _waitingDuration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds =
+        _waitingDuration.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
   }
 
@@ -458,10 +471,9 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
       if (mounted) {
         setState(() {
           _tripStatus = data['status'] ?? _tripStatus;
-          final phone = (data['customerPhone'] ??
-                  data['userPhone'] ??
-                  data['phone'])
-              ?.toString();
+          final phone =
+              (data['customerPhone'] ?? data['userPhone'] ?? data['phone'])
+                  ?.toString();
           if (phone != null && phone.isNotEmpty) {
             _customerPhone = phone;
           }
@@ -583,13 +595,20 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
             Listener(
               behavior: HitTestBehavior.translucent,
               onPointerDown: (_) {
-                if (_hudVisible) setState(() => _hudVisible = false);
-              },
-              onPointerUp: (_) {
-                if (!_hudVisible) setState(() => _hudVisible = true);
+                if (_hudVisible || !_showConfirmDestination) {
+                  setState(() {
+                    _hudVisible = false;
+                    _showConfirmDestination = true;
+                  });
+                }
               },
               onPointerCancel: (_) {
-                if (!_hudVisible) setState(() => _hudVisible = true);
+                if (mounted) {
+                  setState(() {
+                    _hudVisible = false;
+                    _showConfirmDestination = true;
+                  });
+                }
               },
               child: FlutterMap(
                 mapController: _mapController,
@@ -626,8 +645,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                           points: _driverToPickupRoute,
                           color: const Color(0xff06B6D4),
                           strokeWidth: 4.0,
-                          pattern: StrokePattern.dashed(
-                              segments: const [8.0, 6.0]),
+                          pattern:
+                              StrokePattern.dashed(segments: const [8.0, 6.0]),
                         ),
                       ],
                       // Pickup to Destination Route (Orange Glow)
@@ -654,22 +673,23 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                         Marker(
                           point: _driverLocation!,
                           width: 115,
-                          height: 52,
+                          height: 60,
                           child: _buildDriverMarker(),
                         ),
                       // Pickup Marker (Emerald)
                       Marker(
                         point: _pickupLocation,
-                        width: 120,
-                        height: 52,
+                        width: 60,
+                        height: 60,
                         child: _buildPickupMarker(),
                       ),
                       // Dropoff Marker (Orange)
-                      if (widget.dropoffLat != null && widget.dropoffLng != null)
+                      if (widget.dropoffLat != null &&
+                          widget.dropoffLng != null)
                         Marker(
                           point: LatLng(widget.dropoffLat!, widget.dropoffLng!),
-                          width: 120,
-                          height: 52,
+                          width: 60,
+                          height: 60,
                           child: _buildDropoffMarker(),
                         ),
                     ],
@@ -772,10 +792,12 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xff06B6D4).withOpacity(0.15),
+                                  color:
+                                      const Color(0xff06B6D4).withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
-                                      color: const Color(0xff06B6D4).withOpacity(0.4)),
+                                      color: const Color(0xff06B6D4)
+                                          .withOpacity(0.4)),
                                 ),
                                 child: Text(
                                   '${_distanceToTargetKm.toStringAsFixed(1)} كم',
@@ -868,6 +890,49 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
               right: 16,
               bottom: 20,
               child: AnimatedOpacity(
+                opacity: _showConfirmDestination ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 180),
+                child: IgnorePointer(
+                  ignoring: !_showConfirmDestination,
+                  child: SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _showConfirmDestination = false;
+                            _hudVisible = true;
+                          });
+                        },
+                        icon: const Icon(Icons.check_circle_rounded),
+                        label: const Text(
+                          'تم تأكيد الوجهة',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xff10B981),
+                          foregroundColor: Colors.white,
+                          elevation: 8,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 20,
+              child: AnimatedOpacity(
                 opacity: _hudVisible ? 1.0 : 0.0,
                 duration: const Duration(milliseconds: 180),
                 child: IgnorePointer(
@@ -952,24 +1017,29 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                                         Icon(
                                           Icons.phone_rounded,
                                           size: 13,
-                                          color: customerPhone != null && customerPhone.isNotEmpty
+                                          color: customerPhone != null &&
+                                                  customerPhone.isNotEmpty
                                               ? const Color(0xff10B981)
                                               : const Color(0xff94A3B8),
                                         ),
                                         const SizedBox(width: 4),
                                         Expanded(
                                           child: Text(
-                                            customerPhone != null && customerPhone.isNotEmpty
+                                            customerPhone != null &&
+                                                    customerPhone.isNotEmpty
                                                 ? customerPhone
                                                 : 'رقم الهاتف غير متاح',
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
                                               fontSize: 13,
-                                              color: customerPhone != null && customerPhone.isNotEmpty
+                                              color: customerPhone != null &&
+                                                      customerPhone.isNotEmpty
                                                   ? const Color(0xff10B981)
                                                   : const Color(0xff94A3B8),
-                                              fontWeight: customerPhone != null && customerPhone.isNotEmpty
+                                              fontWeight: customerPhone !=
+                                                          null &&
+                                                      customerPhone.isNotEmpty
                                                   ? FontWeight.w700
                                                   : FontWeight.w500,
                                             ),
@@ -1103,8 +1173,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                               decoration: BoxDecoration(
                                 color: const Color(0xff2D210F),
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                    color: const Color(0xffF97316)),
+                                border:
+                                    Border.all(color: const Color(0xffF97316)),
                               ),
                               child: Row(
                                 mainAxisAlignment:
@@ -1178,115 +1248,115 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
 
     if (!isArrived && !isStarted) {
       // Step 1: Arrived at Customer
-      return Container(
-        width: double.infinity,
-        height: 52,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xffF97316), Color(0xffEA580C)],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xffF97316).withOpacity(0.35),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+      return PressableScale(
+        onTap: _markDriverArrived,
+        child: Container(
+          width: double.infinity,
+          height: 52,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xffF97316), Color(0xffEA580C)],
             ),
-          ],
-        ),
-        child: ElevatedButton.icon(
-          onPressed: _markDriverArrived,
-          icon: const Icon(Icons.location_on_rounded,
-              color: Colors.white, size: 22),
-          label: const Text(
-            'أنا وصلت للعميل (إشعار العميل)',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xffF97316).withOpacity(0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14)),
+          alignment: Alignment.center,
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.location_on_rounded, color: Colors.white, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'أنا وصلت للعميل (إشعار العميل)',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
           ),
         ),
       );
     } else if (isArrived && !isStarted) {
       // Step 2: Start Trip
-      return Container(
-        width: double.infinity,
-        height: 52,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xff10B981), Color(0xff059669)],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xff10B981).withOpacity(0.35),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+      return PressableScale(
+        onTap: _startTrip,
+        child: Container(
+          width: double.infinity,
+          height: 52,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xff10B981), Color(0xff059669)],
             ),
-          ],
-        ),
-        child: ElevatedButton.icon(
-          onPressed: _startTrip,
-          icon: const Icon(Icons.navigation_rounded,
-              color: Colors.white, size: 22),
-          label: const Text(
-            'تحرك إلى وجهة العميل (بدء الرحلة)',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xff10B981).withOpacity(0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14)),
+          alignment: Alignment.center,
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.navigation_rounded, color: Colors.white, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'تحرك إلى وجهة العميل (بدء الرحلة)',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
           ),
         ),
       );
     } else {
       // Step 3: Complete Trip
-      return Container(
-        width: double.infinity,
-        height: 52,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xff10B981), Color(0xff047857)],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xff10B981).withOpacity(0.4),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+      return PressableScale(
+        onTap: _completeTrip,
+        child: Container(
+          width: double.infinity,
+          height: 52,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xff10B981), Color(0xff047857)],
             ),
-          ],
-        ),
-        child: ElevatedButton.icon(
-          onPressed: _completeTrip,
-          icon: const Icon(Icons.check_circle_rounded,
-              color: Colors.white, size: 22),
-          label: const Text(
-            'تم الوصول بنجاح (إنهاء الرحلة وتحصيل الحساب)',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xff10B981).withOpacity(0.4),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14)),
+          alignment: Alignment.center,
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'تم الوصول بنجاح (إنهاء الرحلة وتحصيل الحساب)',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -1299,26 +1369,25 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     Color color = Colors.white,
     String? tooltip,
   }) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: const Color(0xff121620).withOpacity(0.92),
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xff1E293B), width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.4),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: IconButton(
-        icon: Icon(icon, color: color, size: 20),
-        onPressed: onTap,
-        tooltip: tooltip,
-        padding: EdgeInsets.zero,
+    return PressableScale(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xff121620).withOpacity(0.92),
+          shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xff1E293B), width: 1.2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.4),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Icon(icon, color: color, size: 20),
       ),
     );
   }
@@ -1357,132 +1426,27 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
           ),
         ),
         const SizedBox(height: 2),
-        Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            color: const Color(0xff06B6D4),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2.5),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xff06B6D4).withOpacity(0.8),
-                blurRadius: 8,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
+        const GpsRadarMarker(
+          color: Color(0xff06B6D4),
+          size: 30,
         ),
       ],
     );
   }
 
   Widget _buildPickupMarker() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: const Color(0xff10B981),
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xff10B981).withOpacity(0.5),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.person_pin_circle_rounded,
-                  color: Colors.white, size: 12),
-              SizedBox(width: 4),
-              Text(
-                'نقطة الركوب',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 2),
-        Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            color: const Color(0xff10B981),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2.5),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xff10B981).withOpacity(0.8),
-                blurRadius: 8,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-        ),
-      ],
+    return const AnimatedPinDropMarker(
+      icon: Icons.person_pin_circle_rounded,
+      color: Color(0xff10B981),
+      size: 34,
     );
   }
 
   Widget _buildDropoffMarker() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: const Color(0xffF97316),
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xffF97316).withOpacity(0.5),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.flag_rounded, color: Colors.white, size: 12),
-              SizedBox(width: 4),
-              Text(
-                'نقطة الوصول',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 2),
-        Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            color: const Color(0xffF97316),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2.5),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xffF97316).withOpacity(0.8),
-                blurRadius: 8,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-        ),
-      ],
+    return const AnimatedPinDropMarker(
+      icon: Icons.flag_rounded,
+      color: Color(0xffF97316),
+      size: 34,
     );
   }
 }

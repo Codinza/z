@@ -1128,15 +1128,15 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_currentLocation != null)
               flutter_map.Marker(
                 point: _currentLocation!,
-                width: 44,
-                height: 44,
+                width: 52,
+                height: 52,
                 child: const _UserLocationMarker(),
               ),
             if (_destinationLocation != null)
               flutter_map.Marker(
                 point: _destinationLocation!,
-                width: 44,
-                height: 44,
+                width: 52,
+                height: 60,
                 child: const _DestinationMarker(),
               ),
           ],
@@ -2340,34 +2340,9 @@ class _UserLocationMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: const Color(0xffF97316).withOpacity(0.25),
-            shape: BoxShape.circle,
-          ),
-        ),
-        Container(
-          width: 22,
-          height: 22,
-          decoration: BoxDecoration(
-            color: const Color(0xffF97316),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 3),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xffF97316).withOpacity(0.6),
-                blurRadius: 8,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-        ),
-      ],
+    return const GpsRadarMarker(
+      color: Color(0xffF97316),
+      size: 52,
     );
   }
 }
@@ -2377,26 +2352,10 @@ class _DestinationMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 38,
-      height: 38,
-      decoration: BoxDecoration(
-        color: const Color(0xffEF4444),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2.5),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xffEF4444).withOpacity(0.5),
-            blurRadius: 10,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: const Icon(
-        Icons.flag_rounded,
-        color: Colors.white,
-        size: 20,
-      ),
+    return const AnimatedPinDropMarker(
+      icon: Icons.flag_rounded,
+      color: Color(0xffEF4444),
+      size: 40,
     );
   }
 }

@@ -14,6 +14,7 @@ import '../../core/services/notification_service.dart';
 import '../auth/auth_service.dart';
 import '../map_trip/active_trip_screen.dart';
 import '../notifications/notifications_screen.dart';
+import '../../core/widgets/animations/zoon_animations.dart';
 import 'driver_background_service.dart';
 import 'driver_trip_route_map_screen.dart';
 
@@ -951,97 +952,33 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             children: [
               SizedBox(height: MediaQuery.of(context).size.height * 0.12),
-              // Radar Pulse Graphic
-              Center(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: 140,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: const Color(0xffF97316).withOpacity(0.04),
-                        border: Border.all(
-                          color: const Color(0xffF97316).withOpacity(0.12),
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      width: 105,
-                      height: 105,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: const Color(0xffF97316).withOpacity(0.08),
-                        border: Border.all(
-                          color: const Color(0xffF97316).withOpacity(0.25),
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: const LinearGradient(
-                          colors: [Color(0xffF97316), Color(0xffEA580C)],
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xffF97316).withOpacity(0.4),
-                            blurRadius: 20,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.radar_rounded,
-                        size: 36,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               const Center(
-                child: Text(
-                  'في انتظار الطلبات الجديدة',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
+                child: LogisticsSearchRadar(
+                  size: 210,
+                  icon: Icons.radar_rounded,
+                  title: 'في انتظار الطلبات الجديدة',
+                  subtitle:
+                      'أنت متصل بالشبكة وسيرفر زوون يعمل بالكامل.\nستظهر الطلبات الجديدة هنا فور إرسالها من العملاء مع إشعار وتنبيه صوتي.',
+                  primaryColor: Color(0xffF97316),
                 ),
               ),
-              const SizedBox(height: 8),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 36),
-                child: Text(
-                  'أنت متصل بالشبكة وسيرفر زوون يعمل بالكامل.\nستظهر الطلبات الجديدة هنا فور إرسالها من العملاء مع إشعار وتنبيه صوتي.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Color(0xff94A3B8),
-                    height: 1.5,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               Center(
-                child: ElevatedButton.icon(
-                  onPressed: _fetchAvailableTrips,
-                  icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('تحديث الرادار الآن'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xff161B26),
-                    foregroundColor: const Color(0xffF97316),
-                    side: const BorderSide(color: Color(0xffF97316), width: 1.2),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                child: PressableScale(
+                  scaleFactor: 0.96,
+                  child: ElevatedButton.icon(
+                    onPressed: _fetchAvailableTrips,
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('تحديث الرادار الآن'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xff161B26),
+                      foregroundColor: const Color(0xffF97316),
+                      side: const BorderSide(color: Color(0xffF97316), width: 1.2),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                     ),
                   ),
                 ),
