@@ -205,6 +205,9 @@ class AuthService {
       }
       if (user['driverStatus'] != null) {
         await prefs.setString(_driverStatusKey, user['driverStatus']);
+      } else if (user['role'] == 'driver') {
+        // Default to pending for drivers when status is not provided
+        await prefs.setString(_driverStatusKey, 'pending');
       }
       if (user['companyId'] != null) {
         await prefs.setString(_companyIdKey, user['companyId']);
@@ -278,6 +281,28 @@ class AuthService {
   static Future<String?> getDriverStatus() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_driverStatusKey);
+  }
+
+  /// Fetches the latest driver status from the backend and updates local storage.
+  /// Returns the refreshed status string, or null on failure.
+  static Future<String?> refreshDriverStatus() async {
+    try {
+      final dio = await getAuthenticatedDio();
+      final response = await dio.get('/api/auth/profile');
+      if (response.statusCode == 200) {
+        final data = response.data;
+        final driverInfo = data['driverInfo'];
+        if (driverInfo != null && driverInfo['status'] != null) {
+          final status = driverInfo['status'] as String;
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_driverStatusKey, status);
+          return status;
+        }
+      }
+    } catch (_) {
+      // Silently fail - return cached status
+    }
+    return getDriverStatus();
   }
 
   static Future<String?> getCompanyId() async {

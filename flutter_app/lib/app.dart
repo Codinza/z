@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'features/auth/auth_service.dart';
 import 'features/auth/login_screen.dart';
+import 'features/auth/pending_approval_screen.dart';
 import 'features/home/customer_main_screen.dart';
 import 'features/driver/driver_main_screen.dart';
 import 'features/driver/driver_auth_screen.dart';
@@ -8,6 +9,7 @@ import 'features/company/company_auth_screen.dart';
 import 'features/admin/shipping_dashboard_screen.dart';
 import 'features/admin/admin_dashboard_screen.dart';
 import 'features/admin/super_admin_screen.dart';
+import 'features/intro/intro_video_screen.dart';
 
 const String appType = String.fromEnvironment('APP_TYPE', defaultValue: '');
 
@@ -57,7 +59,7 @@ class RideFlowApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const AuthGate(),
+      home: const IntroVideoScreen(),
     );
   }
 }
@@ -110,7 +112,7 @@ class _AuthGateState extends State<AuthGate> {
     }
 
     if (appType == 'driver') {
-      return const DriverMainScreen();
+      return const DriverGate();
     }
     if (appType == 'company') {
       return const ShippingDashboardScreen();
@@ -160,7 +162,7 @@ class _MainNavigationState extends State<MainNavigation> {
       case 'customer':
         return const CustomerMainScreen();
       case 'driver':
-        return const DriverMainScreen();
+        return const DriverGate();
       case 'company':
         return const ShippingDashboardScreen();
       case 'admin':
@@ -168,5 +170,59 @@ class _MainNavigationState extends State<MainNavigation> {
       default:
         return const CustomerMainScreen();
     }
+  }
+}
+
+/// Gate widget that checks driver approval status before allowing access to DriverMainScreen.
+/// Shows PendingApprovalScreen for unapproved drivers.
+class DriverGate extends StatefulWidget {
+  const DriverGate({super.key});
+
+  @override
+  State<DriverGate> createState() => _DriverGateState();
+}
+
+class _DriverGateState extends State<DriverGate> {
+  String? _status;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkStatus();
+  }
+
+  Future<void> _checkStatus() async {
+    // First, quickly show based on cached status
+    final cachedStatus = await AuthService.getDriverStatus();
+    if (!mounted) return;
+    setState(() {
+      _status = cachedStatus;
+      _isLoading = false;
+    });
+
+    // Then verify with backend in the background
+    final freshStatus = await AuthService.refreshDriverStatus();
+    if (!mounted) return;
+    if (freshStatus != null && freshStatus != _status) {
+      setState(() {
+        _status = freshStatus;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_status == 'approved') {
+      return const DriverMainScreen();
+    }
+
+    return const PendingApprovalScreen();
   }
 }

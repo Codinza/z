@@ -117,7 +117,7 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
 
       if (result != null && result['accessToken'] != null) {
         final role = result['user']?['role'];
-        final status = result['driver']?['status'] ?? result['user']?['driverStatus'] ?? 'approved';
+        final status = result['driver']?['status'] ?? result['user']?['driverStatus'] ?? 'pending';
 
         if (role == 'driver') {
           if (status == 'approved') {

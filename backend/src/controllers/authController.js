@@ -50,7 +50,8 @@ export const register = async (req, res) => {
     const tokens = generateTokens(user);
     res.status(201).json({
       message: 'Registration successful',
-      user: { id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role },
+      user: { id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, driverStatus: userRole === 'driver' ? 'pending' : null },
+      driver: userRole === 'driver' ? { status: 'pending' } : null,
       ...tokens,
     });
   } catch (error) {
