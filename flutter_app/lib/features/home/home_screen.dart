@@ -599,23 +599,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (mounted) {
           _resetForm();
-          ZoonOrderSuccessModal.show(
+          Navigator.push(
             context,
-            title: 'تم إرسال الطلب بنجاح! 🎉',
-            message:
-                'تم إرسال طلبك إلى الكباتن المعتمدين القريبين منك، وستبدأ العروض في الوصول فوراً.',
-            orderId: tripId,
-            onTrackOrder: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => OrderTrackingScreen(
-                    orderId: tripId,
-                    isTrip: true,
-                  ),
-                ),
-              );
-            },
+            MaterialPageRoute(
+              builder: (context) => OrderTrackingScreen(
+                orderId: tripId,
+                isTrip: true,
+              ),
+            ),
           );
         }
       } else {
@@ -803,23 +794,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (mounted) {
           _resetForm();
-          ZoonOrderSuccessModal.show(
+          Navigator.push(
             context,
-            title: 'تم إنشاء طلب الشحن بنجاح! 📦',
-            message:
-                'تم تعميم شحنتك على شركات الشحن والكباتن المعتمدين لموافقة وتجهيز أسرع.',
-            orderId: data['order']['id'],
-            onTrackOrder: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => OrderTrackingScreen(
-                    orderId: data['order']['id'],
-                    isTrip: false,
-                  ),
-                ),
-              );
-            },
+            MaterialPageRoute(
+              builder: (context) => OrderTrackingScreen(
+                orderId: data['order']['id'],
+                isTrip: false,
+              ),
+            ),
           );
         }
       } else {
