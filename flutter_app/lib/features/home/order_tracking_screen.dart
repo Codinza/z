@@ -1022,20 +1022,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xff0A0A0A),
         body: _isLoading
-            ? Stack(
-                children: [
-                  const Center(
-                    child: ZoonRiveLoading(
-                      size: 80,
-                      message: 'جاري تحميل تفاصيل ومسار الطلب...',
-                    ),
-                  ),
-                  Positioned(
-                    top: MediaQuery.of(context).padding.top + 10,
-                    right: 16,
-                    child: _buildFloatingBackButton(),
-                  ),
-                ],
+            ? ZoonDispatchLoadingScreen(
+                isShipping: !_isTrip,
+                onBack: () => Navigator.of(context).pop(),
               )
             : _error != null
                 ? _ErrorView(message: _error!, onRetry: _loadOrder)
