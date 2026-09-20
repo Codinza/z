@@ -279,6 +279,8 @@ class _LoginScreenState extends State<LoginFormScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      const Zoon3DMascot(height: 150),
+                      const SizedBox(height: 10),
                       Container(
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(

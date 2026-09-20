@@ -46,5 +46,5 @@ flutter:
   assets:
     - assets/intro/v.mp4
     - assets/zoon_login_background.jpeg
-    - assets/models/zoon_mascot.glb
+    - assets/models/
     - assets/rive/
