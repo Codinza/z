@@ -69,7 +69,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Future<void> _loadOrder({bool silent = false}) async {
-    if (!silent && mounted) {
+    // Show loading screen only on the very first load (no data yet)
+    final isFirstLoad = _order == null && _error == null;
+    if (isFirstLoad && mounted) {
       setState(() {
         _isLoading = true;
         _error = null;
@@ -92,7 +94,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         throw Exception('تعذر العثور على بيانات الطلب');
       }
     } catch (error) {
-      if (mounted && !silent) {
+      if (mounted) {
         setState(() {
           _isLoading = false;
           _error = 'تعذر العثور على تفاصيل الطلب أو قد تكون انتهت صلاحيته.';
@@ -1027,7 +1029,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 onBack: () => Navigator.of(context).pop(),
               )
             : _error != null
-                ? _ErrorView(message: _error!, onRetry: _loadOrder)
+                ? _ErrorView(
+                    message: _error!,
+                    onRetry: () async {
+                      setState(() {
+                        _error = null;
+                      });
+                      await _loadOrder();
+                    },
+                  )
                 : Stack(
                     children: [
                       // Map View (Extends under entire status bar)
