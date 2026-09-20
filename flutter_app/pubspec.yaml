@@ -26,6 +26,7 @@ dependencies:
   app_links: ^6.4.0
   video_player: ^2.9.2
   rive: ^0.13.20
+  model_viewer_plus: ^1.9.0
 
 dev_dependencies:
   flutter_test:
@@ -45,5 +46,5 @@ flutter:
   assets:
     - assets/intro/v.mp4
     - assets/zoon_login_background.jpeg
-    - assets/mascot/zoon_mascot.png
+    - assets/models/zoon_mascot.glb
     - assets/rive/

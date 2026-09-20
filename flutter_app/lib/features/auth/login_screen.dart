@@ -47,8 +47,8 @@ class LoginScreen extends StatelessWidget {
               child: Column(
                 children: [
                   const Spacer(flex: 2),
-                  const AnimatedZoonMascot(size: 176),
-                  const SizedBox(height: 10),
+                  const Zoon3DMascot(height: 210),
+                  const SizedBox(height: 8),
                   TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0, end: 1),
                     duration: const Duration(milliseconds: 520),
