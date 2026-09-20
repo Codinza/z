@@ -46,7 +46,9 @@ class LoginScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
               child: Column(
                 children: [
-                  const Spacer(),
+                  const Spacer(flex: 2),
+                  const AnimatedZoonMascot(size: 176),
+                  const SizedBox(height: 10),
                   TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0, end: 1),
                     duration: const Duration(milliseconds: 520),
@@ -147,6 +149,7 @@ class LoginScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const Spacer(flex: 1),
                 ],
               ),
             ),
