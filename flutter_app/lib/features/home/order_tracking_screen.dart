@@ -990,33 +990,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         backgroundColor: const Color(0xff0A0A0A),
-        appBar: AppBar(
-          backgroundColor: const Color(0xff111315),
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_forward_ios_rounded,
-                color: Colors.white, size: 20),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          title: Text(
-            isShipping ? 'معاينة وتتبع الشحنة' : 'معاينة وتتبع الرحلة',
-            style: const TextStyle(
-                color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
-          ),
-          centerTitle: true,
-        ),
         body: _isLoading
-            ? const Center(
-                child: ZoonRiveLoading(
-                  size: 80,
-                  message: 'جاري تحميل تفاصيل ومسار الطلب...',
-                ),
+            ? Stack(
+                children: [
+                  const Center(
+                    child: ZoonRiveLoading(
+                      size: 80,
+                      message: 'جاري تحميل تفاصيل ومسار الطلب...',
+                    ),
+                  ),
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 10,
+                    right: 16,
+                    child: _buildFloatingBackButton(),
+                  ),
+                ],
               )
             : _error != null
                 ? _ErrorView(message: _error!, onRetry: _loadOrder)
                 : Stack(
                     children: [
-                      // Map View
+                      // Map View (Extends under entire status bar)
                       FlutterMap(
                         mapController: _mapController,
                         options: MapOptions(
@@ -1125,9 +1119,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         ],
                       ),
 
+                      // Floating Top Header Bar ("معاينة وتتبع الرحلة" كلمة طايرة كدا وباقي الشاشة خريطة)
+                      Positioned(
+                        top: MediaQuery.of(context).padding.top + 10,
+                        left: 16,
+                        right: 16,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Floating Circular Back Button
+                            _buildFloatingBackButton(),
+
+                            // Floating Capsule Badge ("كلمة طايرة كدا")
+                            _buildFloatingHeaderBadge(isShipping),
+
+                            // Invisible spacer of identical width (44px) for symmetrical centering
+                            const SizedBox(width: 44),
+                          ],
+                        ),
+                      ),
+
                       // Floating Map Controls (Center Route & Zoom)
                       Positioned(
-                        top: 16,
+                        top: MediaQuery.of(context).padding.top + 68,
                         left: 16,
                         child: Column(
                           children: [
@@ -1418,6 +1432,88 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
+  Widget _buildFloatingBackButton() {
+    return PressableScale(
+      onTap: () => Navigator.of(context).pop(),
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xff111315).withOpacity(0.88),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withOpacity(0.18),
+            width: 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.4),
+              blurRadius: 12,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: const Center(
+          child: Icon(
+            Icons.arrow_forward_ios_rounded,
+            color: Colors.white,
+            size: 18,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingHeaderBadge(bool isShipping) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xff111315).withOpacity(0.88),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(
+          color: const Color(0xffF97316).withOpacity(0.4),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xff22C55E),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0xff22C55E),
+                  blurRadius: 6,
+                  spreadRadius: 1.5,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            isShipping ? 'معاينة وتتبع الشحنة' : 'معاينة وتتبع الرحلة',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildDriverVehicleMarker(bool isShipping) {
     final driver = _order?['driver'] as Map?;
