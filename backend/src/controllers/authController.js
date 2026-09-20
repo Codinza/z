@@ -1,10 +1,44 @@
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
+import { issueOtp, verifyOtp } from '../services/otpService.js';
+import { normalizePhone, isValidEgyptianMobile, maskPhone } from '../utils/phone.js';
 import logger from '../utils/logger.js';
 
-const prisma = new PrismaClient();
+const MIN_PASSWORD_LENGTH = 6;
+
+/** Maps an OTP failure reason to an HTTP status and Arabic message. */
+function otpFailureResponse(result) {
+  switch (result.reason) {
+    case 'INVALID_FORMAT':
+      return { status: 400, body: { error: 'الكود يجب أن يكون 6 أرقام' } };
+    case 'EXPIRED':
+      return {
+        status: 410,
+        body: {
+          error: 'انتهت صلاحية الكود. اطلب كود جديد.',
+          expired: true,
+        },
+      };
+    case 'TOO_MANY_ATTEMPTS':
+      return {
+        status: 429,
+        body: {
+          error: 'تم تجاوز عدد المحاولات المسموح. اطلب كود جديد.',
+          expired: true,
+        },
+      };
+    default:
+      return {
+        status: 400,
+        body: {
+          error: 'الكود غير صحيح',
+          attemptsLeft: result.attemptsLeft,
+        },
+      };
+  }
+}
 
 function generateTokens(user) {
   const accessToken = jwt.sign(
@@ -22,41 +56,214 @@ function generateTokens(user) {
 
 export const register = async (req, res) => {
   try {
-    const { name, phone, email, password, role, carModel, carColor, carYear, plateNumber, licensePhotoUrl, carPhotoUrl } = req.body;
+    const { name, phone, email, password, role, carModel, carColor, carYear, plateNumber, licensePhotoUrl, carPhotoUrl, vehicleCategory } = req.body;
     if (!name || !phone || !password) {
-      return res.status(400).json({ error: 'Name, phone, and password are required' });
+      return res.status(400).json({ error: 'الاسم ورقم الموبايل وكلمة المرور مطلوبين' });
     }
-    const existingUser = await prisma.user.findFirst({
-      where: { OR: [{ phone }, ...(email ? [{ email }] : [])] },
-    });
-    if (existingUser) {
-      return res.status(409).json({ error: 'User with this phone or email already exists' });
+
+    const normalizedPhone = normalizePhone(phone);
+    if (!isValidEgyptianMobile(normalizedPhone)) {
+      return res.status(400).json({
+        error: 'رقم الموبايل غير صحيح. أدخل رقم مصري مثل 01xxxxxxxxx',
+      });
     }
+
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({
+        error: `كلمة المرور يجب أن لا تقل عن ${MIN_PASSWORD_LENGTH} أحرف`,
+      });
+    }
+
+    const normalizedEmail = email && email.trim().length > 0 ? email.trim() : null;
+    if (normalizedEmail) {
+      const emailOwner = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+      if (emailOwner && emailOwner.phone !== normalizedPhone) {
+        return res.status(409).json({ error: 'البريد الإلكتروني مستخدم بالفعل' });
+      }
+    }
+
+    const existingUser = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+    if (existingUser && existingUser.phoneVerified) {
+      return res.status(409).json({ error: 'يوجد حساب مسجل بهذا الرقم بالفعل' });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 12);
     const userRole = role === 'driver' ? 'driver' : 'customer';
-    const user = await prisma.user.create({
-      data: { name, phone, email: email || null, password: hashedPassword, role: userRole },
-    });
+    const profile = { name, email: normalizedEmail, password: hashedPassword, role: userRole };
+
+    // An unverified signup never proved ownership of the number, so the real
+    // owner is allowed to claim it instead of being blocked by the unique index.
+    const user = existingUser
+      ? await prisma.user.update({ where: { id: existingUser.id }, data: profile })
+      : await prisma.user.create({ data: { ...profile, phone: normalizedPhone, phoneVerified: false } });
+
     if (userRole === 'driver') {
-      const driver = await prisma.driver.create({
-        data: { userId: user.id, status: 'pending', licensePhotoUrl: licensePhotoUrl || null, carPhotoUrl: carPhotoUrl || null },
+      const category =
+        String(vehicleCategory || '').toLowerCase() === 'motorcycle'
+          ? 'motorcycle'
+          : 'car';
+      const driver = await prisma.driver.upsert({
+        where: { userId: user.id },
+        update: {
+          licensePhotoUrl: licensePhotoUrl || null,
+          carPhotoUrl: carPhotoUrl || null,
+          vehicleCategory: category,
+        },
+        create: {
+          userId: user.id,
+          status: 'pending',
+          vehicleCategory: category,
+          licensePhotoUrl: licensePhotoUrl || null,
+          carPhotoUrl: carPhotoUrl || null,
+        },
       });
       if (plateNumber && carModel) {
-        await prisma.car.create({
-          data: { driverId: driver.id, plateNumber, model: carModel || 'Unknown', color: carColor || 'Unknown', year: parseInt(carYear) || 2024 },
+        await prisma.car.upsert({
+          where: { driverId: driver.id },
+          update: { plateNumber, model: carModel, color: carColor || 'Unknown', year: parseInt(carYear) || 2024 },
+          create: {
+            driverId: driver.id,
+            plateNumber,
+            model: carModel,
+            color: carColor || 'Unknown',
+            year: parseInt(carYear) || 2024,
+          },
         });
       }
     }
-    const tokens = generateTokens(user);
+
+    let otp;
+    try {
+      otp = await issueOtp({ phone: normalizedPhone, purpose: 'REGISTRATION' });
+    } catch (error) {
+      if (error.code === 'OTP_COOLDOWN') {
+        return res.status(429).json({
+          error: `تم إرسال كود بالفعل. انتظر ${error.retryAfterSeconds} ثانية.`,
+          requiresVerification: true,
+          phone: normalizedPhone,
+          maskedPhone: maskPhone(normalizedPhone),
+          retryAfterSeconds: error.retryAfterSeconds,
+        });
+      }
+      throw error;
+    }
+
+    // No tokens yet: the account stays locked until the code is confirmed.
     res.status(201).json({
-      message: 'Registration successful',
-      user: { id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, driverStatus: userRole === 'driver' ? 'pending' : null },
-      driver: userRole === 'driver' ? { status: 'pending' } : null,
-      ...tokens,
+      message: 'تم إنشاء الحساب. أدخل كود التأكيد المرسل إلى رقمك.',
+      requiresVerification: true,
+      phone: normalizedPhone,
+      maskedPhone: maskPhone(normalizedPhone),
+      expiresAt: otp.expiresAt,
+      resendAfterSeconds: otp.resendAfterSeconds,
+      ...(otp.devCode ? { devCode: otp.devCode } : {}),
     });
   } catch (error) {
     logger.error('Registration failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ error: 'Registration failed' });
+    res.status(500).json({ error: 'فشل إنشاء الحساب' });
+  }
+};
+
+export const verifyPhone = async (req, res) => {
+  try {
+    const { phone, code } = req.body;
+    if (!phone || !code) {
+      return res.status(400).json({ error: 'رقم الموبايل والكود مطلوبين' });
+    }
+
+    const normalizedPhone = normalizePhone(phone);
+    const user = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+
+    if (!user) {
+      return res.status(404).json({ error: 'لا يوجد حساب بهذا الرقم' });
+    }
+
+    if (user.phoneVerified) {
+      return res.status(409).json({
+        error: 'تم تأكيد هذا الرقم بالفعل. سجّل الدخول.',
+        alreadyVerified: true,
+      });
+    }
+
+    const result = await verifyOtp({ phone: normalizedPhone, code, purpose: 'REGISTRATION' });
+    if (!result.ok) {
+      const { status, body } = otpFailureResponse(result);
+      return res.status(status).json(body);
+    }
+
+    const verifiedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { phoneVerified: true },
+    });
+
+    let driverStatus = null;
+    let vehicleCategory = null;
+    if (verifiedUser.role === 'driver') {
+      const driver = await prisma.driver.findUnique({ where: { userId: verifiedUser.id } });
+      driverStatus = driver?.status || 'pending';
+      vehicleCategory = driver?.vehicleCategory || 'car';
+    }
+
+    const tokens = generateTokens(verifiedUser);
+    res.json({
+      message: 'تم تأكيد رقم الموبايل بنجاح',
+      user: {
+        id: verifiedUser.id,
+        name: verifiedUser.name,
+        phone: verifiedUser.phone,
+        email: verifiedUser.email,
+        role: verifiedUser.role,
+        driverStatus,
+        vehicleCategory,
+      },
+      driver: driverStatus
+        ? { status: driverStatus, vehicleCategory: vehicleCategory || 'car' }
+        : null,
+      ...tokens,
+    });
+  } catch (error) {
+    logger.error('Phone verification failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'فشل تأكيد رقم الموبايل' });
+  }
+};
+
+export const resendVerificationCode = async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: 'رقم الموبايل مطلوب' });
+    }
+
+    const normalizedPhone = normalizePhone(phone);
+    const user = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+
+    // Deliberately identical whether or not the number exists, so this endpoint
+    // cannot be used to discover which numbers are registered.
+    const genericResponse = {
+      message: 'إذا كان الرقم مسجلاً وغير مؤكد، سيتم إرسال كود جديد.',
+      resendAfterSeconds: env.otpResendCooldownSeconds,
+    };
+
+    if (!user || user.phoneVerified) {
+      return res.json(genericResponse);
+    }
+
+    const otp = await issueOtp({ phone: normalizedPhone, purpose: 'REGISTRATION' });
+    res.json({
+      ...genericResponse,
+      expiresAt: otp.expiresAt,
+      resendAfterSeconds: otp.resendAfterSeconds,
+      ...(otp.devCode ? { devCode: otp.devCode } : {}),
+    });
+  } catch (error) {
+    if (error.code === 'OTP_COOLDOWN') {
+      return res.status(429).json({
+        error: `انتظر ${error.retryAfterSeconds} ثانية قبل طلب كود جديد.`,
+        retryAfterSeconds: error.retryAfterSeconds,
+      });
+    }
+    logger.error('Resend verification code failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'فشل إرسال الكود' });
   }
 };
 
@@ -70,18 +277,20 @@ export const login = async (req, res) => {
       return res.status(400).json({ error: 'Phone or email is required' });
     }
 
+    const normalizedPhone = phone ? normalizePhone(phone) : null;
+
     let user = null;
-    if (phone) {
-      user = await prisma.user.findUnique({ where: { phone } });
+    if (normalizedPhone) {
+      user = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
     }
     if (!user && email) {
       user = await prisma.user.findUnique({ where: { email } });
     }
-    if (!user && phone && email) {
+    if (!user && normalizedPhone && email) {
       user = await prisma.user.findFirst({
         where: {
           OR: [
-            { phone },
+            { phone: normalizedPhone },
             { email },
           ],
         },
@@ -95,16 +304,40 @@ export const login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    // Checked only after the password, so a wrong password never reveals
+    // whether an account exists or what state it is in.
+    if (!user.phoneVerified) {
+      return res.status(403).json({
+        error: 'رقم الموبايل غير مؤكد. أدخل كود التأكيد لتفعيل الحساب.',
+        requiresVerification: true,
+        phone: user.phone,
+        maskedPhone: maskPhone(user.phone),
+      });
+    }
+
     let driverStatus = null;
+    let vehicleCategory = null;
     if (user.role === 'driver') {
       const driver = await prisma.driver.findUnique({ where: { userId: user.id } });
       driverStatus = driver?.status || 'pending';
+      vehicleCategory = driver?.vehicleCategory || 'car';
     }
     const tokens = generateTokens(user);
     res.json({
       message: 'Login successful',
-      user: { id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, driverStatus },
-      driver: driverStatus ? { status: driverStatus } : null,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+        role: user.role,
+        driverStatus,
+        vehicleCategory,
+      },
+      driver: driverStatus
+        ? { status: driverStatus, vehicleCategory: vehicleCategory || 'car' }
+        : null,
       ...tokens,
     });
   } catch (error) {
@@ -119,12 +352,14 @@ export const guestLogin = async (req, res) => {
     const guestPassword = await bcrypt.hash(`guest-${env.jwtSecret}`, 12);
     const user = await prisma.user.upsert({
       where: { phone: guestPhone },
-      update: { name: 'زائر العميل', role: 'customer' },
+      update: { name: 'زائر العميل', role: 'customer', phoneVerified: true },
       create: {
         name: 'زائر العميل',
         phone: guestPhone,
         password: guestPassword,
         role: 'customer',
+        // Guests have no real number to verify, so they bypass the SMS gate.
+        phoneVerified: true,
       },
     });
     const tokens = generateTokens(user);

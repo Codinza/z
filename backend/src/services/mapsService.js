@@ -63,9 +63,10 @@ export function calculateDistanceKm({ pickupLat, pickupLng, dropoffLat, dropoffL
   return Number((earthRadiusKm * c).toFixed(2));
 }
 
-export function estimateFare(distanceKm, surgeMultiplier = 1.0) {
-  const baseFare = 15; // 15 EGP base fare
-  const perKm = 6;     // 6 EGP per km
+export function estimateFare(distanceKm, surgeMultiplier = 1.0, vehicleType = 'car') {
+  const isMotorcycle = String(vehicleType).toLowerCase() === 'motorcycle';
+  const baseFare = isMotorcycle ? 10 : 15;
+  const perKm = isMotorcycle ? 4.5 : 6;
   const surge = surgeMultiplier;
   return Number((baseFare + distanceKm * perKm * surge).toFixed(2));
 }

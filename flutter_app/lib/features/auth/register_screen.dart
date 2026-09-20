@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'pending_approval_screen.dart';
 import 'auth_service.dart';
-import '../home/customer_main_screen.dart';
+import 'otp_verification_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -21,6 +20,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _carYearController = TextEditingController();
   final _plateNumberController = TextEditingController();
   String _selectedRole = 'customer';
+  String _vehicleCategory = 'car'; // car | motorcycle
   bool _isLoading = false;
   bool _obscureText = true;
 
@@ -30,7 +30,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 _carColorController.text.trim().isEmpty ||
                 _carYearController.text.trim().isEmpty ||
                 _plateNumberController.text.trim().isEmpty)
-        ? 'يرجى إدخال بيانات السيارة كاملة'
+        ? (_vehicleCategory == 'motorcycle'
+            ? 'يرجى إدخال بيانات الموتوسيكل كاملة'
+            : 'يرجى إدخال بيانات السيارة كاملة')
         : _nameController.text.trim().isEmpty ||
                 _phoneController.text.trim().isEmpty ||
                 _passwordController.text.trim().isEmpty
@@ -59,33 +61,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
           _selectedRole == 'driver' ? _carYearController.text.trim() : null,
       plateNumber:
           _selectedRole == 'driver' ? _plateNumberController.text.trim() : null,
+      vehicleCategory: _selectedRole == 'driver' ? _vehicleCategory : null,
     );
 
     if (!mounted) return;
 
     setState(() => _isLoading = false);
 
-    if (result != null && result['accessToken'] != null) {
-      if (_selectedRole == 'customer') {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const CustomerMainScreen()),
-          (_) => false,
-        );
-      } else {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
-          (_) => false,
-        );
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                result?['error'] ?? result?['message'] ?? 'فشل إنشاء الحساب')),
+    if (result != null && result['requiresVerification'] == true) {
+      final phone = (result['phone'] ?? _phoneController.text.trim()).toString();
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OtpVerificationScreen(
+            phone: phone,
+            maskedPhone: result['maskedPhone']?.toString(),
+            role: _selectedRole,
+            initialDevCode: result['devCode']?.toString(),
+            initialResendAfterSeconds:
+                (result['resendAfterSeconds'] as num?)?.toInt() ?? 60,
+          ),
+        ),
       );
+      return;
     }
+
+    if (result != null && result['accessToken'] != null) {
+      await navigateAfterSuccessfulAuth(context);
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result?['error'] ?? result?['message'] ?? 'فشل إنشاء الحساب',
+        ),
+      ),
+    );
   }
 
   @override
@@ -277,16 +289,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             secondChild: Column(
                               children: [
                                 const SizedBox(height: 16),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildVehicleChip(
+                                        value: 'car',
+                                        label: 'سيارة',
+                                        icon: Icons.directions_car_rounded,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _buildVehicleChip(
+                                        value: 'motorcycle',
+                                        label: 'موتوسيكل',
+                                        icon: Icons.two_wheeler_rounded,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
                                 TextField(
                                   controller: _carModelController,
                                   style: textStyle,
-                                  decoration: fieldDecoration('موديل السيارة'),
+                                  decoration: fieldDecoration(
+                                    _vehicleCategory == 'motorcycle'
+                                        ? 'موديل الموتوسيكل'
+                                        : 'موديل السيارة',
+                                  ),
                                 ),
                                 const SizedBox(height: 16),
                                 TextField(
                                   controller: _carColorController,
                                   style: textStyle,
-                                  decoration: fieldDecoration('لون السيارة'),
+                                  decoration: fieldDecoration(
+                                    _vehicleCategory == 'motorcycle'
+                                        ? 'لون الموتوسيكل'
+                                        : 'لون السيارة',
+                                  ),
                                 ),
                                 const SizedBox(height: 16),
                                 TextField(
@@ -352,6 +392,52 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVehicleChip({
+    required String value,
+    required String label,
+    required IconData icon,
+  }) {
+    final selected = _vehicleCategory == value;
+    return GestureDetector(
+      onTap: () => setState(() => _vehicleCategory = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xffff7418).withOpacity(0.18)
+              : Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? const Color(0xffff7418)
+                : Colors.white.withOpacity(0.18),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: selected ? const Color(0xffff7418) : Colors.white70,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.white70,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 13.5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

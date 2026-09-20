@@ -1,0 +1,24 @@
+[
+  {
+    "id": "ticket_sample_001",
+    "name": "محمود عبد الرحيم",
+    "email": "mahmoud@gmail.com",
+    "phone": "01012345678",
+    "message": "واجهت مشكلة أثناء دفع الأجرة كاش وتم احتساب الخصم مرتين.",
+    "status": "OPEN",
+    "adminReply": null,
+    "createdAt": "2026-09-20T01:32:59.667Z",
+    "updatedAt": "2026-09-20T01:32:59.668Z"
+  },
+  {
+    "id": "ticket_sample_002",
+    "name": "كابتن هاني سيد",
+    "email": "captain.hany@gmail.com",
+    "phone": "01198765432",
+    "message": "أرغب في تحديث رقم لوحة سيارتي في التطبيق لو سمحت.",
+    "status": "RESOLVED",
+    "adminReply": "تم تحديث بيانات سيارتك بنجاح كابتن هاني. نتمنى لك رحلات موفقة!",
+    "createdAt": "2026-09-19T04:32:59.668Z",
+    "updatedAt": "2026-09-19T06:19:39.668Z"
+  }
+]

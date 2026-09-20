@@ -183,6 +183,7 @@ export const getCompanyDashboard = async (req, res) => {
             customerOfferPrice: true,
             companyOfferPrice: true,
             finalPrice: true,
+            customerContactVisible: true,
             limousinePickupAddress: true,
             limousineDropoffAddress: true,
             shippingPickupAddress: true,
@@ -193,7 +194,7 @@ export const getCompanyDashboard = async (req, res) => {
               select: {
                 id: true,
                 name: true,
-                phone: true, // Only show if order status is CONFIRMED or later
+                phone: true,
               },
             },
           },
@@ -219,6 +220,7 @@ export const getCompanyDashboard = async (req, res) => {
         customerOfferPrice: true,
         companyOfferPrice: true,
         finalPrice: true,
+        customerContactVisible: true,
         limousinePickupAddress: true,
         limousineDropoffAddress: true,
         shippingPickupAddress: true,
@@ -242,20 +244,24 @@ export const getCompanyDashboard = async (req, res) => {
       ...newOrders,
     ];
 
-    // Mask customer phone if order is not confirmed
+    // Mask customer phone until contact is unlocked / order confirmed
     const processedOrders = orders.map((order) => {
-      if (order.status !== 'CONFIRMED' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED') {
-        return {
-          ...order,
-          customer: {
-            ...order.customer,
-            phone: order.customer.phone
-              ? order.customer.phone.slice(0, 3) + '****' + order.customer.phone.slice(-2)
-              : null,
-          },
-        };
+      if (
+        order.customerContactVisible ||
+        order.status === 'CONFIRMED' ||
+        order.status === 'COMPLETED'
+      ) {
+        return order;
       }
-      return order;
+      return {
+        ...order,
+        customer: {
+          ...order.customer,
+          phone: order.customer.phone
+            ? order.customer.phone.slice(0, 3) + '****' + order.customer.phone.slice(-2)
+            : null,
+        },
+      };
     });
 
     // Dashboard stats
@@ -340,20 +346,24 @@ export const getCompanyOrders = async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Mask sensitive customer data
+    // Mask sensitive customer data until contact is unlocked
     const processedOrders = orders.map((order) => {
-      if (order.status !== 'CONFIRMED' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED') {
-        return {
-          ...order,
-          customer: {
-            ...order.customer,
-            phone: order.customer.phone
-              ? order.customer.phone.slice(0, 3) + '****' + order.customer.phone.slice(-2)
-              : null,
-          },
-        };
+      if (
+        order.customerContactVisible ||
+        order.status === 'CONFIRMED' ||
+        order.status === 'COMPLETED'
+      ) {
+        return order;
       }
-      return order;
+      return {
+        ...order,
+        customer: {
+          ...order.customer,
+          phone: order.customer.phone
+            ? order.customer.phone.slice(0, 3) + '****' + order.customer.phone.slice(-2)
+            : null,
+        },
+      };
     });
 
     res.json({ orders: processedOrders });
@@ -456,18 +466,19 @@ export const acceptOrder = async (req, res) => {
         .json({ error: 'You do not have access to this order' });
     }
 
+    // Company accepted the customer's own offer — deal is closed.
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: {
-        status: 'COMPANY_ACCEPTED',
+        status: 'CONFIRMED',
         finalPrice: order.customerOfferPrice,
+        customerContactVisible: true,
       },
       include: {
         customer: true,
       },
     });
 
-    // Create notification for customer
     await prisma.notification.create({
       data: {
         userId: updatedOrder.customerId,
@@ -480,12 +491,12 @@ export const acceptOrder = async (req, res) => {
 
     emitOrderStatusChanged({
       orderId,
-      status: 'COMPANY_ACCEPTED',
+      status: 'CONFIRMED',
       price: updatedOrder.finalPrice,
     });
 
     res.json({
-      message: 'Order accepted',
+      message: 'Order accepted and confirmed',
       order: updatedOrder,
     });
   } catch (error) {
@@ -571,6 +582,16 @@ export const sendCounterOffer = async (req, res) => {
       return res
         .status(403)
         .json({ error: 'You do not have access to this order' });
+    }
+
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    if (company.companyType !== order.serviceType) {
+      return res.status(403).json({
+        error: `You can only offer on ${company.companyType} orders`,
+      });
     }
 
     // Create price offer

@@ -29,7 +29,7 @@ class RideFlowApp extends StatelessWidget {
       seedColor = const Color(0xffF97316);
       appTitle = 'Zoon Driver';
     } else if (appType == 'admin') {
-      seedColor = const Color(0xFF8B5CF6);
+      seedColor = const Color(0xffF97316);
       appTitle = 'Zoon Admin';
     }
 
@@ -37,17 +37,18 @@ class RideFlowApp extends StatelessWidget {
       title: appTitle,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
           seedColor: seedColor,
-          brightness: Brightness.light,
+          brightness: Brightness.dark,
         ).copyWith(
           primary: seedColor,
-          secondary: const Color(0xff111315),
-          surface: const Color(0xffF6F7F8),
+          secondary: const Color(0xffF97316),
+          surface: const Color(0xff121620),
         ),
-        scaffoldBackgroundColor: const Color(0xffF6F7F8),
+        scaffoldBackgroundColor: const Color(0xff0B0E14),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xff111315),
+          backgroundColor: Color(0xff12151A),
           foregroundColor: Colors.white,
           elevation: 0,
         ),

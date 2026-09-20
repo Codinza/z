@@ -1,11 +1,23 @@
 import { Router } from 'express';
-import { register, login, guestLogin, refreshToken, getProfile, changePassword } from '../controllers/authController.js';
+import {
+  register,
+  login,
+  guestLogin,
+  refreshToken,
+  getProfile,
+  changePassword,
+  verifyPhone,
+  resendVerificationCode,
+} from '../controllers/authController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
-
-const router = Router();
+import { otpSendLimiter, otpVerifyLimiter } from '../middlewares/rateLimiter.js';
 
 export const authRoutes = () => {
-  router.post('/register', register);
+  const router = Router();
+
+  router.post('/register', otpSendLimiter, register);
+  router.post('/verify-phone', otpVerifyLimiter, verifyPhone);
+  router.post('/resend-code', otpSendLimiter, resendVerificationCode);
   router.post('/login', login);
   router.post('/guest', guestLogin);
   router.post('/refresh', refreshToken);

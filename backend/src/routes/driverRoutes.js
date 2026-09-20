@@ -1,18 +1,20 @@
 import express from 'express';
 import { driverController } from '../controllers/driverController.js';
+import { requireRole, requireSelfDriver } from '../middlewares/authMiddleware.js';
 
 export function driverRoutes() {
   const router = express.Router();
 
-  router.get('/', driverController.listDrivers.bind(driverController));
-  router.get('/:id', driverController.getDriverById.bind(driverController));
+  router.get('/', requireRole('admin', 'super_admin'), driverController.listDrivers.bind(driverController));
+  router.get('/:id', requireSelfDriver, driverController.getDriverById.bind(driverController));
 
-  router.get('/:id/wallet', driverController.getWallet.bind(driverController));
-  router.post('/:id/recharge', driverController.recharge.bind(driverController));
-  router.post('/:id/wallet/checkout', driverController.createWalletCheckout.bind(driverController));
-  router.post('/:id/wallet/top-up-request', driverController.createTopUpRequest.bind(driverController));
-  router.get('/:id/history', driverController.getHistory.bind(driverController));
-  router.get('/:id/ratings', driverController.getRatings.bind(driverController));
+  router.get('/:id/wallet', requireSelfDriver, driverController.getWallet.bind(driverController));
+  // Free direct recharge is disabled — use top-up-request or Paymob checkout.
+  router.post('/:id/recharge', requireSelfDriver, driverController.recharge.bind(driverController));
+  router.post('/:id/wallet/checkout', requireSelfDriver, driverController.createWalletCheckout.bind(driverController));
+  router.post('/:id/wallet/top-up-request', requireSelfDriver, driverController.createTopUpRequest.bind(driverController));
+  router.get('/:id/history', requireSelfDriver, driverController.getHistory.bind(driverController));
+  router.get('/:id/ratings', requireSelfDriver, driverController.getRatings.bind(driverController));
 
   return router;
 }

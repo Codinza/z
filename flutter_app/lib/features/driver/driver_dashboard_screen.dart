@@ -41,15 +41,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   final Map<String, TextEditingController> _offerControllers = {};
 
   String _driverId = 'driver_dummy_001';
+  String _vehicleCategory = 'car'; // car | motorcycle
 
-  static const Map<String, Map<String, String>> _knownCustomers = {
-    'cmtbv7t8k0000uuf4tbq7ywtj': {'name': 'أيمن', 'phone': '01273381289'},
-    'cmtj4htm40006ip1v2064d90p': {'name': 'أيمن', 'phone': '01273381280'},
-    'cmtbvd7gd0000uuv0k4cmlv8g': {'name': 'أيمن', 'phone': '01104378091'},
-    'cmtw44ylm002be41v9kydho0z': {'name': 'محمد السيد', 'phone': '01221633453'},
-    'cmtuknm670000hz1vkpwiducr': {'name': 'جني محمد السيد', 'phone': '01210467498'},
-    'cmtw19ixg0000e41v60vb5t3h': {'name': 'أيمن', 'phone': '01505175915'},
-  };
+  bool _matchesDriverVehicle(Map<String, dynamic> trip) {
+    final rideType =
+        (trip['vehicleType']?.toString().toLowerCase() == 'motorcycle')
+            ? 'motorcycle'
+            : 'car';
+    return rideType == _vehicleCategory;
+  }
 
   String _resolveCustomerName(Map<String, dynamic> trip) {
     final rawName = (trip['customerName'] ??
@@ -66,14 +66,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       return rawName;
     }
 
-    final userId =
-        (trip['userId'] ?? trip['customerId'] ?? trip['user']?['id'])?.toString();
-    if (userId != null && _knownCustomers.containsKey(userId)) {
-      return _knownCustomers[userId]!['name']!;
-    }
-
-    if (rawName == 'a') return 'أيمن';
-    return 'عميل زوون VIP';
+    return 'عميل';
   }
 
   String? _resolveCustomerPhone(Map<String, dynamic> trip) {
@@ -94,19 +87,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       return direct;
     }
 
-    final userId =
-        (trip['userId'] ?? trip['customerId'] ?? trip['user']?['id'])?.toString();
-    if (userId != null && _knownCustomers.containsKey(userId)) {
-      return _knownCustomers[userId]!['phone'];
-    }
-
-    final name = _resolveCustomerName(trip).toLowerCase();
-    for (final entry in _knownCustomers.values) {
-      if (entry['name']!.toLowerCase() == name) {
-        return entry['phone'];
-      }
-    }
-
     return null;
   }
 
@@ -121,6 +101,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     if (savedDriverId != null && savedDriverId.isNotEmpty) {
       _driverId = savedDriverId;
     }
+    _vehicleCategory = await AuthService.getVehicleCategory();
 
     if (!mounted) return;
 
@@ -250,7 +231,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _socket!.connect();
 
     _socket!.on('connect', (_) async {
-      _socket!.emit('driver:ready', _driverId);
+      _socket!.emit('driver:ready', {
+        'driverId': _driverId,
+        'vehicleCategory': _vehicleCategory,
+      });
       await _fetchAvailableTrips();
       if (mounted) setState(() {});
     });
@@ -259,43 +243,62 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (mounted) setState(() {});
     });
 
+    void ingestIncomingTrip(Map<String, dynamic> normalizedData) {
+      normalizedData['status'] ??= 'pending';
+
+      // Assigned trips for this driver always show; pending must match vehicle.
+      final isMine = normalizedData['driverId'] == _driverId;
+      if (!isMine && !_matchesDriverVehicle(normalizedData)) return;
+
+      // Only show new requests if the driver doesn't have an active trip
+      final hasActiveTrip = _incomingTrips.any((t) =>
+          t['driverId'] == _driverId &&
+          ['accepted', 'driver_arriving', 'driver_arrived', 'started']
+              .contains(t['status']));
+
+      if (hasActiveTrip && !isMine) return;
+
+      final alreadyExists = _incomingTrips.any((trip) =>
+          (trip['id'] ?? trip['rideId']) ==
+          (normalizedData['id'] ?? normalizedData['rideId']));
+
+      if (alreadyExists) return;
+
+      setState(() {
+        _incomingTrips.insert(0, normalizedData);
+        final tripId = normalizedData['id'] ?? normalizedData['rideId'];
+        if (!_offerControllers.containsKey(tripId)) {
+          _offerControllers[tripId] = TextEditingController(
+            text: (normalizedData['fareEstimate'] as num?)?.toStringAsFixed(2) ??
+                '0.00',
+          );
+        }
+      });
+      NotificationService().showDriverTripAlert(
+        tripId:
+            (normalizedData['id'] ?? normalizedData['rideId'] ?? '').toString(),
+        pickupAddress:
+            (normalizedData['pickupAddress'] ?? 'موقع العميل').toString(),
+        fare: (normalizedData['fareEstimate'] ?? '0').toString(),
+        customerName: (normalizedData['customerName'] ??
+                normalizedData['user']?['name'])
+            ?.toString(),
+      );
+    }
+
     _socket!.on('trip_request', (data) {
-      if (mounted) {
-        final normalizedData =
-            data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
-        normalizedData['status'] ??= 'pending';
+      if (!mounted) return;
+      final normalizedData =
+          data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+      ingestIncomingTrip(normalizedData);
+    });
 
-        // Only show new requests if the driver doesn't have an active trip
-        final hasActiveTrip = _incomingTrips.any((t) =>
-            t['driverId'] == _driverId &&
-            ['accepted', 'driver_arriving', 'driver_arrived', 'started']
-                .contains(t['status']));
-
-        if (hasActiveTrip) return;
-
-        final alreadyExists = _incomingTrips.any((trip) =>
-            (trip['id'] ?? trip['rideId']) ==
-            (normalizedData['id'] ?? normalizedData['rideId']));
-
-        if (alreadyExists) return;
-
-        setState(() {
-          _incomingTrips.insert(0, normalizedData);
-          final tripId = normalizedData['id'] ?? normalizedData['rideId'];
-          if (!_offerControllers.containsKey(tripId)) {
-            _offerControllers[tripId] = TextEditingController(
-              text: (normalizedData['fareEstimate'] as num?)
-                      ?.toStringAsFixed(2) ??
-                  '0.00',
-            );
-          }
-        });
-        NotificationService().showDriverTripAlert(
-          tripId: (normalizedData['id'] ?? normalizedData['rideId'] ?? '').toString(),
-          pickupAddress: (normalizedData['pickupAddress'] ?? 'موقع العميل').toString(),
-          fare: (normalizedData['fareEstimate'] ?? '0').toString(),
-          customerName: (normalizedData['customerName'] ?? normalizedData['user']?['name'])?.toString(),
-        );
+    _socket!.on('pending_rides_sync', (data) {
+      if (!mounted || data is! List) return;
+      for (final item in data) {
+        if (item is Map) {
+          ingestIncomingTrip(Map<String, dynamic>.from(item));
+        }
       }
     });
 
@@ -369,9 +372,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       if (response.statusCode == 200) {
         final rides = response.data['rides'] as List<dynamic>;
 
-        // Include pending trips AND any active trips assigned to this driver
+        // Include matching pending trips AND any active trips assigned to this driver
         final relevantTrips = rides.where((ride) {
-          if (ride['status'] == 'pending') return true;
+          final map = Map<String, dynamic>.from(ride as Map);
+          if (ride['status'] == 'pending') {
+            return _matchesDriverVehicle(map);
+          }
           if (ride['driverId'] == _driverId &&
               ['accepted', 'driver_arriving', 'driver_arrived', 'started']
                   .contains(ride['status'])) return true;
@@ -775,7 +781,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         final bookingType = trip['tripType']?.toString() ??
             trip['areaType']?.toString() ??
             'حجز فوري';
-        final vehicleType = trip['vehicleType']?.toString() ?? 'VIP Sedan';
+        final rawVehicleType = trip['vehicleType']?.toString() ?? 'car';
+        final vehicleType = rawVehicleType.toLowerCase() == 'motorcycle'
+            ? 'موتوسيكل'
+            : rawVehicleType.toLowerCase() == 'car'
+                ? 'سيارة'
+                : rawVehicleType;
         final fareEstimate = (trip['fareEstimate'] as num?)?.toDouble() ?? 0.0;
 
         final isPending = status == 'pending';

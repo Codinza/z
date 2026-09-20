@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../auth/auth_service.dart';
 
@@ -85,6 +86,93 @@ class AdminService {
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('AdminService.rejectDriver error: $e');
+      return false;
+    }
+  }
+
+  /// Create a driver already approved (admin-only, no OTP)
+  static Future<Map<String, dynamic>?> createApprovedDriver({
+    required String name,
+    required String phone,
+    required String password,
+    String? carModel,
+    String? carColor,
+    String? carYear,
+    String? plateNumber,
+    String vehicleCategory = 'car',
+  }) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.post('/api/admin/drivers/create', data: {
+        'name': name,
+        'phone': phone,
+        'password': password,
+        'carModel': carModel,
+        'carColor': carColor,
+        'carYear': carYear,
+        'plateNumber': plateNumber,
+        'vehicleCategory': vehicleCategory,
+      });
+      if (response.statusCode == 201 && response.data is Map) {
+        return Map<String, dynamic>.from(response.data as Map);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('AdminService.createApprovedDriver error: $e');
+      if (e is DioException && e.response?.data is Map) {
+        return Map<String, dynamic>.from(e.response!.data as Map);
+      }
+      return {'error': 'فشل إنشاء السائق'};
+    }
+  }
+
+  // ===================== COMPANIES =====================
+
+  static Future<List<Map<String, dynamic>>> getAllCompanies({
+    String? status,
+  }) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.get('/api/admin/companies');
+      if (response.statusCode == 200 && response.data is Map) {
+        final list = response.data['companies'];
+        if (list is List) {
+          var companies = list
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+          if (status != null && status != 'ALL') {
+            companies = companies
+                .where((c) => (c['status']?.toString() ?? '') == status)
+                .toList();
+          }
+          return companies;
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('AdminService.getAllCompanies error: $e');
+      return [];
+    }
+  }
+
+  static Future<bool> approveCompany(String id) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.post('/api/admin/companies/$id/approve');
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('AdminService.approveCompany error: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> rejectCompany(String id) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.post('/api/admin/companies/$id/reject');
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('AdminService.rejectCompany error: $e');
       return false;
     }
   }

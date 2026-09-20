@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../auth/api_service.dart';
+import '../../core/widgets/animations/zoon_animations.dart';
 
 class CustomerBalanceScreen extends StatefulWidget {
   const CustomerBalanceScreen({super.key});
@@ -45,15 +46,15 @@ class _CustomerBalanceScreenState extends State<CustomerBalanceScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xff0a0a0a),
+        backgroundColor: const Color(0xff0B0E14),
         appBar: AppBar(
-          backgroundColor: const Color(0xff111315),
+          backgroundColor: const Color(0xff12151A),
           elevation: 0,
           title: const Text('الرصيد',
               style: TextStyle(
                   color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold)),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800)),
           centerTitle: true,
         ),
         body: _isLoading
@@ -168,8 +169,10 @@ class _CustomerBalanceScreenState extends State<CustomerBalanceScreen> {
                                     ],
                                   ),
                                   const SizedBox(height: 20),
-                                  Text(
-                                    '${_balance.toStringAsFixed(2)} ج.م',
+                                  AnimatedCounterText(
+                                    value: _balance,
+                                    suffix: 'ج.م',
+                                    fractionDigits: 2,
                                     style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 36,
@@ -665,11 +668,14 @@ class _CustomerBalanceScreenState extends State<CustomerBalanceScreen> {
                                   ),
                                 );
                               } else {
-                                _loadBalance();
                                 messenger.showSnackBar(
                                   SnackBar(
-                                    content: const Text(
-                                        'حدث خطأ أثناء شحن الرصيد'),
+                                    content: Text(
+                                      (result['message'] ??
+                                              result['error'] ??
+                                              'حدث خطأ أثناء شحن الرصيد')
+                                          .toString(),
+                                    ),
                                     backgroundColor:
                                         const Color(0xffEF4444),
                                     behavior: SnackBarBehavior.floating,

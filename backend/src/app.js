@@ -18,7 +18,7 @@ import { orderRoutes } from './routes/orderRoutes.js';
 import { mapsRoutes } from './routes/mapsRoutes.js';
 import { customerRoutes } from './routes/customerRoutes.js';
 import { setSocketIO } from './services/tripService.js';
-import { authMiddleware, optionalAuthMiddleware } from './middlewares/authMiddleware.js';
+import { authMiddleware, requireRole } from './middlewares/authMiddleware.js';
 import { generalLimiter, authLimiter, sensitiveLimiter } from './middlewares/rateLimiter.js';
 import logger from './utils/logger.js';
 
@@ -38,13 +38,41 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Apply general rate limiting to all routes
 app.use(generalLimiter);
 
-app.use((req, res, next) => { 
-  logger.info('Incoming request', { 
-    method: req.method, 
-    url: req.url, 
-    body: req.body 
-  }); 
-  next(); 
+app.use((req, res, next) => {
+  const sensitiveKeys = new Set([
+    'password',
+    'oldPassword',
+    'newPassword',
+    'token',
+    'accessToken',
+    'refreshToken',
+    'receiptImage',
+    'shippingImageBase64',
+    'profileImage',
+    'licensePhotoUrl',
+    'carPhotoUrl',
+  ]);
+
+  let safeBody;
+  if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+    safeBody = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      if (sensitiveKeys.has(key)) {
+        safeBody[key] = '[REDACTED]';
+      } else {
+        safeBody[key] = value;
+      }
+    }
+  } else {
+    safeBody = undefined;
+  }
+
+  logger.info('Incoming request', {
+    method: req.method,
+    url: req.url,
+    ...(safeBody ? { body: safeBody } : {}),
+  });
+  next();
 });
 
 app.get('/privacy-policy', (_, res) => {
@@ -117,7 +145,7 @@ app.use('/api/drivers', authMiddleware, driverRoutes());
 app.use('/api/locations', authMiddleware, locationRoutes());
 app.use('/api/payments', authMiddleware, sensitiveLimiter, paymentRoutes());
 app.use('/api/notifications', authMiddleware, notificationRoutes());
-app.use('/api/admin', optionalAuthMiddleware, adminRoutes());
+app.use('/api/admin', authMiddleware, requireRole('admin', 'super_admin'), adminRoutes());
 app.use('/api/customers', authMiddleware, customerRoutes());
 
 // Set Socket.IO instance in trip service for real-time events

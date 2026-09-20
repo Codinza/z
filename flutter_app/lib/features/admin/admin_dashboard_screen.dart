@@ -11,6 +11,7 @@ import 'tabs/drivers_management_tab.dart';
 import 'tabs/finances_tab.dart';
 import 'tabs/customers_tab.dart';
 import 'tabs/support_tab.dart';
+import 'tabs/companies_tab.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -46,11 +47,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   int _pendingDriversCount = 0;
   int _pendingTopUpsCount = 0;
   int _openTicketsCount = 0;
+  int _pendingCompaniesCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _fetchAllData();
     _initSocket();
 
@@ -174,6 +176,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         AdminService.getPendingDrivers().catchError((_) => null),
         AdminService.getDriverTopUps().catchError((_) => <Map<String, dynamic>>[]),
         AdminService.getSupportTickets().catchError((_) => <String, dynamic>{}),
+        AdminService.getAllCompanies(status: 'pending')
+            .catchError((_) => <Map<String, dynamic>>[]),
       ]);
 
       if (mounted) {
@@ -188,6 +192,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           final supportMap = results[2] as Map<String, dynamic>;
           final stats = supportMap['stats'] as Map<String, dynamic>? ?? {};
           _openTicketsCount = stats['open'] ?? 0;
+
+          final pendingCompanies = results[3] as List<Map<String, dynamic>>;
+          _pendingCompaniesCount = pendingCompanies.length;
         });
       }
     } catch (e) {
@@ -311,6 +318,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ),
               Tab(
                 icon: _buildBadgeIcon(
+                  Icons.business_outlined,
+                  _pendingCompaniesCount,
+                  badgeColor: const Color(0xffF59E0B),
+                ),
+                text: 'الشركات',
+              ),
+              Tab(
+                icon: _buildBadgeIcon(
                   Icons.headset_mic_outlined,
                   _openTicketsCount,
                   badgeColor: const Color(0xffEF4444),
@@ -383,7 +398,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       // 4. Customers Directory Tab
                       const CustomersTab(),
 
-                      // 5. Support & Helpdesk Tab
+                      // 5. Companies Management Tab
+                      CompaniesTab(
+                        onDataChanged: _fetchAllData,
+                      ),
+
+                      // 6. Support & Helpdesk Tab
                       SupportTab(
                         onDataChanged: _fetchAllData,
                       ),

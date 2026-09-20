@@ -21,13 +21,10 @@ class DriverController {
     }
   }
 
-  async recharge(req, res) {
-    try {
-      const result = await driverService.rechargeWallet(req.params.id, req.body.amount);
-      return res.json(result);
-    } catch (e) {
-      return res.status(400).json({ message: e.message });
-    }
+  async recharge(_req, res) {
+    return res.status(501).json({
+      message: 'الشحن المباشر غير متاح. أرسل طلب شحن مع إيصال للمراجعة.',
+    });
   }
 
   async createTopUpRequest(req, res) {

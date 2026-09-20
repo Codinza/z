@@ -204,8 +204,20 @@ class ApiService {
     try {
       final response =
           await dio.post('/customers/add-funds', data: {'amount': amount});
-      return response.data ?? {};
-    } catch (e) {
+      if (response.data is Map<String, dynamic>) {
+        return response.data;
+      }
+      return Map<String, dynamic>.from(response.data ?? {});
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      if (data is Map) {
+        return {
+          'success': false,
+          'message': data['error'] ?? data['message'] ?? 'فشلت عملية إضافة الرصيد',
+        };
+      }
+      return {'success': false, 'message': 'فشلت عملية إضافة الرصيد'};
+    } catch (_) {
       return {'success': false, 'message': 'فشلت عملية إضافة الرصيد'};
     }
   }

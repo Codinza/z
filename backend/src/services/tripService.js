@@ -46,8 +46,16 @@ class TripService {
       const storedTrips = await tripRepository.listTrips();
       const normalizedTrips = storedTrips.map(({ user, ...trip }) => {
         const isAccepted = ['accepted', 'driver_arriving', 'driver_arrived', 'started', 'completed'].includes(trip.status);
-        const rawName = (user?.name && user.name !== 'User Dummy' && user.name !== 'a') ? user.name : (trip.userName && trip.userName !== 'User Dummy' && trip.userName !== 'a' ? trip.userName : 'أيمن');
-        const rawPhone = (user?.phone && !user.phone.includes('96650000000')) ? user.phone : (trip.userPhone && !trip.userPhone.includes('96650000000') ? trip.userPhone : '01273381289');
+        const rawName = (user?.name && user.name !== 'User Dummy' && user.name !== 'a')
+          ? user.name
+          : (trip.userName && trip.userName !== 'User Dummy' && trip.userName !== 'a'
+            ? trip.userName
+            : 'عميل');
+        const rawPhone = (user?.phone && !user.phone.includes('96650000000'))
+          ? user.phone
+          : (trip.userPhone && !trip.userPhone.includes('96650000000')
+            ? trip.userPhone
+            : null);
         return {
           ...trip,
           userName: rawName,
@@ -61,8 +69,12 @@ class TripService {
       for (const trip of memoryTrips) {
         const isAccepted = ['accepted', 'driver_arriving', 'driver_arrived', 'started', 'completed'].includes(trip.status);
         const existing = byId.get(trip.id);
-        const rawName = (trip.userName && trip.userName !== 'User Dummy' && trip.userName !== 'a') ? trip.userName : (existing?.userName || 'أيمن');
-        const rawPhone = (trip.userPhone && !trip.userPhone.includes('96650000000')) ? trip.userPhone : (existing?.userPhone || '01273381289');
+        const rawName = (trip.userName && trip.userName !== 'User Dummy' && trip.userName !== 'a')
+          ? trip.userName
+          : (existing?.userName || 'عميل');
+        const rawPhone = (trip.userPhone && !trip.userPhone.includes('96650000000'))
+          ? trip.userPhone
+          : (existing?.userPhone || null);
         byId.set(trip.id, {
           ...(existing || {}),
           ...trip,
@@ -178,7 +190,7 @@ class TripService {
     const dayOfWeek = now.getDay();
     const surgeMultiplier = getSurgeMultiplier(hour, dayOfWeek);
     
-    const calculatedFare = estimateFare(distanceKm, surgeMultiplier);
+    const calculatedFare = estimateFare(distanceKm, surgeMultiplier, vehicleType);
     const fareEstimate = proposedFare ? parseFloat(proposedFare) : calculatedFare;
     const tripId = makeRideId();
 
@@ -202,6 +214,9 @@ class TripService {
       }
     }
 
+    const normalizedVehicleType =
+      String(vehicleType || '').toLowerCase() === 'motorcycle' ? 'motorcycle' : 'car';
+
     const ride = {
       id: tripId,
       userId: userId || env.dummyUserId,
@@ -215,7 +230,7 @@ class TripService {
       dropoffLat,
       dropoffLng,
       areaType,
-      vehicleType,
+      vehicleType: normalizedVehicleType,
       tripType,
       notes,
       status: 'pending',
@@ -225,16 +240,16 @@ class TripService {
       durationMinutes: 10,
       remainingDistanceKm: distanceKm,
       remainingMinutes: 10,
-      driverName: 'Driver Dummy',
-      driverPhone: '+966500000000',
-      driverId: 'driver_dummy_001',
+      driverName: null,
+      driverPhone: null,
+      driverId: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     rides.set(tripId, ride);
 
-    // Emit new trip request to connected drivers and globally (for admin/monitoring)
+    // Emit new trip request only to drivers whose vehicle matches the request.
     if (io) {
       const tripRequestPayload = {
         id: tripId,
@@ -256,8 +271,20 @@ class TripService {
         tripType: ride.tripType,
         notes: ride.notes,
       };
-      io.to('drivers').emit('trip_request', tripRequestPayload);
-      io.emit('trip_request', tripRequestPayload);
+      try {
+        const driverSockets = await io.in('drivers').fetchSockets();
+        for (const sock of driverSockets) {
+          const category = sock.data?.vehicleCategory || 'car';
+          if (category === ride.vehicleType) {
+            sock.emit('trip_request', tripRequestPayload);
+          }
+        }
+      } catch (error) {
+        logger.warn('Failed to target trip_request by vehicle category', {
+          error: error.message,
+        });
+        io.to('drivers').emit('trip_request', tripRequestPayload);
+      }
     }
 
     try {
@@ -964,48 +991,108 @@ class TripService {
     return { ride, assignment, acceptedOffer: offer };
   }
 
-  // ── Admin Stats ──────────────────────────────────────────────
-  getTripStats() {
-    const allRides = Array.from(rides.values());
+  // ── Admin Stats (DB + live memory) ───────────────────────────
+  async getTripStats() {
+    const byId = new Map();
 
-    // Driver earnings: sum finalFare of completed trips per driver
+    try {
+      const stored = await prisma.trip.findMany({
+        include: {
+          user: { select: { id: true, name: true } },
+          driver: {
+            include: { user: { select: { name: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      for (const trip of stored) {
+        byId.set(trip.id, {
+          id: trip.id,
+          userId: trip.userId,
+          userName: trip.user?.name || trip.userId,
+          driverId: trip.driverId,
+          driverName: trip.driver?.user?.name || trip.driverId,
+          status: trip.status,
+          finalFare: trip.finalFare,
+          fareEstimate: trip.fareEstimate,
+        });
+      }
+    } catch (error) {
+      logger.warn('Failed to load trip stats from DB', { error: error.message });
+    }
+
+    // Live in-memory rides override DB rows (same id) for freshest status
+    for (const ride of rides.values()) {
+      byId.set(ride.id, {
+        id: ride.id,
+        userId: ride.userId,
+        userName: ride.userName || ride.userId,
+        driverId: ride.driverId,
+        driverName: ride.driverName || ride.driverId,
+        status: ride.status,
+        finalFare: ride.finalFare,
+        fareEstimate: ride.fareEstimate,
+      });
+    }
+
+    const allRides = Array.from(byId.values());
+    const activeStatuses = new Set([
+      'accepted',
+      'driver_arriving',
+      'driver_arrived',
+      'started',
+      'requested',
+    ]);
+
     const driverEarnings = {};
     allRides
       .filter((r) => r.status === 'completed')
       .forEach((r) => {
         const dId = r.driverId || 'unknown';
+        if (dId === 'unknown' || String(dId).startsWith('driver_dummy')) return;
         if (!driverEarnings[dId]) {
-          driverEarnings[dId] = { driverId: dId, driverName: r.driverName || dId, totalEarnings: 0, completedTrips: 0 };
+          driverEarnings[dId] = {
+            driverId: dId,
+            driverName: r.driverName || dId,
+            totalEarnings: 0,
+            completedTrips: 0,
+          };
         }
-        driverEarnings[dId].totalEarnings += r.finalFare || r.fareEstimate || 0;
+        driverEarnings[dId].totalEarnings += Number(r.finalFare || r.fareEstimate || 0);
         driverEarnings[dId].completedTrips += 1;
       });
 
-    // Customer order counts
     const customerOrders = {};
     allRides.forEach((r) => {
       const uId = r.userId || 'unknown';
+      if (uId === 'unknown') return;
       if (!customerOrders[uId]) {
-        customerOrders[uId] = { userId: uId, userName: r.userName || uId, totalOrders: 0, totalSpent: 0 };
+        customerOrders[uId] = {
+          userId: uId,
+          userName: r.userName || uId,
+          totalOrders: 0,
+          totalSpent: 0,
+        };
       }
       customerOrders[uId].totalOrders += 1;
       if (r.status === 'completed') {
-        customerOrders[uId].totalSpent += r.finalFare || r.fareEstimate || 0;
+        customerOrders[uId].totalSpent += Number(r.finalFare || r.fareEstimate || 0);
       }
     });
 
-    // Unique customers who ordered
-    const customersWhoOrdered = Object.keys(customerOrders).length;
-
     return {
       totalTrips: allRides.length,
-      pendingTrips: allRides.filter((r) => r.status === 'pending').length,
-      activeTrips: allRides.filter((r) => !['pending', 'completed', 'cancelled'].includes(r.status)).length,
+      pendingTrips: allRides.filter((r) => r.status === 'pending' || r.status === 'requested').length,
+      activeTrips: allRides.filter((r) => activeStatuses.has(r.status)).length,
       completedTrips: allRides.filter((r) => r.status === 'completed').length,
       cancelledTrips: allRides.filter((r) => r.status === 'cancelled').length,
-      customersWhoOrdered,
-      driverEarnings: Object.values(driverEarnings),
-      customerOrders: Object.values(customerOrders),
+      customersWhoOrdered: Object.keys(customerOrders).length,
+      driverEarnings: Object.values(driverEarnings).sort(
+        (a, b) => b.totalEarnings - a.totalEarnings
+      ),
+      customerOrders: Object.values(customerOrders).sort(
+        (a, b) => b.totalSpent - a.totalSpent
+      ),
     };
   }
 }

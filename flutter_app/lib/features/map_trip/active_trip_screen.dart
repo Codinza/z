@@ -61,18 +61,6 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   bool _hudVisible = true;
   bool _showConfirmDestination = false;
 
-  static const Map<String, Map<String, String>> _knownCustomers = {
-    'cmtbv7t8k0000uuf4tbq7ywtj': {'name': 'أيمن', 'phone': '01273381289'},
-    'cmtj4htm40006ip1v2064d90p': {'name': 'أيمن', 'phone': '01273381280'},
-    'cmtbvd7gd0000uuv0k4cmlv8g': {'name': 'أيمن', 'phone': '01104378091'},
-    'cmtw44ylm002be41v9kydho0z': {'name': 'محمد السيد', 'phone': '01221633453'},
-    'cmtuknm670000hz1vkpwiducr': {
-      'name': 'جني محمد السيد',
-      'phone': '01210467498'
-    },
-    'cmtw19ixg0000e41v60vb5t3h': {'name': 'أيمن', 'phone': '01505175915'},
-  };
-
   String _resolveCustomerName([Map<String, dynamic>? tripData]) {
     final rawName = (tripData?['customerName'] ??
             tripData?['userName'] ??
@@ -89,13 +77,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
       return rawName;
     }
 
-    final userId = (tripData?['userId'] ?? tripData?['customerId'])?.toString();
-    if (userId != null && _knownCustomers.containsKey(userId)) {
-      return _knownCustomers[userId]!['name']!;
-    }
-
-    if (rawName == 'a') return 'أيمن';
-    return 'عميل زوون VIP';
+    return 'عميل';
   }
 
   String? _resolveCustomerPhone([Map<String, dynamic>? tripData]) {
@@ -116,18 +98,6 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
         !direct.contains('dummy') &&
         !direct.contains('0000000')) {
       return direct;
-    }
-
-    final userId = (tripData?['userId'] ?? tripData?['customerId'])?.toString();
-    if (userId != null && _knownCustomers.containsKey(userId)) {
-      return _knownCustomers[userId]!['phone'];
-    }
-
-    final name = _resolveCustomerName(tripData).toLowerCase();
-    for (final entry in _knownCustomers.values) {
-      if (entry['name']!.toLowerCase() == name) {
-        return entry['phone'];
-      }
     }
 
     return null;

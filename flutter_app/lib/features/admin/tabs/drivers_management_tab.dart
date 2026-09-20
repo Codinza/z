@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../admin_service.dart';
-import '../../auth/auth_service.dart';
 
 class DriversManagementTab extends StatefulWidget {
   final VoidCallback? onDataChanged;
@@ -897,11 +896,10 @@ class _DriversManagementTabState extends State<DriversManagementTab> {
                             }
                             setModalState(() => isSubmitting = true);
                             try {
-                              final res = await AuthService.register(
+                              final res = await AdminService.createApprovedDriver(
                                 name: nameCtrl.text.trim(),
                                 phone: phoneCtrl.text.trim(),
                                 password: passCtrl.text.trim(),
-                                role: 'driver',
                                 carModel: modelCtrl.text.trim().isEmpty
                                     ? 'سيدان'
                                     : modelCtrl.text.trim(),
@@ -919,12 +917,16 @@ class _DriversManagementTabState extends State<DriversManagementTab> {
                                 Navigator.pop(context);
                                 _loadDrivers();
                                 widget.onDataChanged?.call();
+                                final ok = res != null && res['driver'] != null;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text(res != null
-                                        ? 'تم تسجيل السائق بنجاح ✓'
-                                        : 'فشل التسجيل'),
-                                    backgroundColor: const Color(0xff22C55E),
+                                    content: Text(ok
+                                        ? 'تم تسجيل السائق واعتماده فوراً ✓'
+                                        : (res?['error']?.toString() ??
+                                            'فشل التسجيل')),
+                                    backgroundColor: ok
+                                        ? const Color(0xff22C55E)
+                                        : Colors.redAccent,
                                   ),
                                 );
                               }

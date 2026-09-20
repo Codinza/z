@@ -72,13 +72,25 @@ class _HomeScreenState extends State<HomeScreen> {
   late String _selectedService;
   static const latlong.LatLng _defaultLocation = latlong.LatLng(30.78, 29.65);
 
-  // ── Pricing System (8.5 EGP/km with flexible upper bounds and limited discount) ──
-  static const double _pricePerKm = 8.5; // 8.5 EGP per kilometer
-  static const double _minBaseFare = 20.0; // Minimum base starting fare
+  // ── Pricing System (cars 8.5 EGP/km, motorcycles 4.5 EGP/km) ──
+  static const double _carPricePerKm = 8.5;
+  static const double _motorcyclePricePerKm = 4.5;
+  static const double _carMinBaseFare = 20.0;
+  static const double _motorcycleMinBaseFare = 15.0;
   static const double _maxDiscountRatio = 0.15; // Max 15% discount limit
 
   double? _estimatedDistanceKm;
   double? _baseEstimatedPrice;
+
+  bool get _isTripService =>
+      _selectedService == 'limousine' || _selectedService == 'motorcycle';
+
+  double get _pricePerKm =>
+      _selectedService == 'motorcycle' ? _motorcyclePricePerKm : _carPricePerKm;
+
+  double get _minBaseFare => _selectedService == 'motorcycle'
+      ? _motorcycleMinBaseFare
+      : _carMinBaseFare;
 
   double get _minAllowedPrice {
     if (_baseEstimatedPrice == null) return _minBaseFare;
@@ -544,7 +556,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'عفواً، السعر المقترح (${proposedFare.toInt()} ج.م) أقل من الحد الأدنى (${_minAllowedPrice.toInt()} ج.م) لمسافة ${_estimatedDistanceKm?.toStringAsFixed(1)} كم.\nيمكنك زيادة السعر أو التخفيض بنسبة بسيطة فقط (8.5 ج.م/كم).',
+            'عفواً، السعر المقترح (${proposedFare.toInt()} ج.م) أقل من الحد الأدنى (${_minAllowedPrice.toInt()} ج.م) لمسافة ${_estimatedDistanceKm?.toStringAsFixed(1)} كم.\nيمكنك زيادة السعر أو التخفيض بنسبة بسيطة فقط (${_pricePerKm} ج.م/كم).',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           backgroundColor: const Color(0xffDC2626),
@@ -578,6 +590,8 @@ class _HomeScreenState extends State<HomeScreen> {
           'dropoffLat': _destinationLocation?.latitude,
           'dropoffLng': _destinationLocation?.longitude,
           'proposedFare': double.parse(_priceController.text),
+          'vehicleType':
+              _selectedService == 'motorcycle' ? 'motorcycle' : 'car',
           'notes':
               _notesController.text.isNotEmpty ? _notesController.text : null,
           if (customerPhone != null && customerPhone.isNotEmpty)
@@ -1133,14 +1147,13 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Sidebar Menu Button (3 horizontal bars)
-          GestureDetector(
+          PressableScale(
             onTap: () => _scaffoldKey.currentState?.openDrawer(),
             child: Container(
-              width: 44,
-              height: 44,
+              width: 46,
+              height: 46,
               decoration: BoxDecoration(
-                color: const Color(0xff121620).withOpacity(0.92),
+                color: const Color(0xff121620).withOpacity(0.94),
                 shape: BoxShape.circle,
                 border: Border.all(color: const Color(0xff2A3342), width: 1.2),
                 boxShadow: [
@@ -1161,9 +1174,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // Center Brand & Live Status Capsule
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             decoration: BoxDecoration(
-              color: const Color(0xff121620).withOpacity(0.92),
+              color: const Color(0xff121620).withOpacity(0.94),
               borderRadius: BorderRadius.circular(22),
               border: Border.all(color: const Color(0xff2A3342), width: 1.2),
               boxShadow: [
@@ -1194,19 +1207,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(width: 8),
                 const Text(
-                  'زوون | متاح الآن',
+                  'زوون',
+                  style: TextStyle(
+                    color: Color(0xffF97316),
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const Text(
+                  '  ·  متاح الآن',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
 
-          // Notifications Button
-          GestureDetector(
+          PressableScale(
             onTap: () {
               Navigator.push(
                 context,
@@ -1216,10 +1236,10 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
             child: Container(
-              width: 44,
-              height: 44,
+              width: 46,
+              height: 46,
               decoration: BoxDecoration(
-                color: const Color(0xff121620).withOpacity(0.92),
+                color: const Color(0xff121620).withOpacity(0.94),
                 shape: BoxShape.circle,
                 border: Border.all(color: const Color(0xff2A3342), width: 1.2),
                 boxShadow: [
@@ -1365,6 +1385,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildBottomSheet() {
     final isLimousine = _selectedService == 'limousine';
+    final isMotorcycle = _selectedService == 'motorcycle';
+    final isTripForm = isLimousine || isMotorcycle;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.44,
@@ -1375,7 +1397,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
-            color: const Color(0xff11141A),
+            color: const Color(0xff0F131A),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(
               color: const Color(0xff252E3E),
@@ -1387,11 +1409,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 blurRadius: 30,
                 offset: const Offset(0, -6),
               ),
+              BoxShadow(
+                color: const Color(0xffF97316).withOpacity(0.06),
+                blurRadius: 24,
+                offset: const Offset(0, -4),
+              ),
             ],
           ),
           child: ListView(
             controller: scrollController,
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 100),
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 110),
             children: [
               // Drag Handle
               Center(
@@ -1445,22 +1472,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Expanded(
                     child: _buildSecondaryServiceCard(
-                      serviceKey: 'shipping',
-                      title: 'شحن وطرود',
-                      subtitle: 'توصيل سريع وآمن',
-                      icon: Icons.local_shipping_outlined,
-                      isSelected: !isLimousine,
+                      serviceKey: 'motorcycle',
+                      title: 'موتوسيكل',
+                      subtitle: '4.5 ج.م/كم',
+                      icon: Icons.two_wheeler_rounded,
+                      isSelected: isMotorcycle,
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: _buildSecondaryServiceCard(
-                      serviceKey: 'scheduled',
-                      title: 'رحلات مجدولة',
-                      subtitle: 'حجز مسبق ومطارات',
-                      icon: Icons.event_available_outlined,
-                      isSelected: false,
-                      isComingSoon: true,
+                      serviceKey: 'shipping',
+                      title: 'شحن وطرود',
+                      subtitle: 'توصيل سريع وآمن',
+                      icon: Icons.local_shipping_outlined,
+                      isSelected: !isTripForm && _selectedService == 'shipping',
                     ),
                   ),
                 ],
@@ -1471,7 +1497,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
 
               // BOOKING FORM SECTION
-              _buildBookingForm(isLimousine),
+              _buildBookingForm(isTripForm),
             ],
           ),
         );
@@ -1480,8 +1506,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildActiveOrderBanner() {
-    final isTrip = _currentOrderIsTrip ?? (_selectedService == 'limousine');
-    return GestureDetector(
+    final isTrip = _currentOrderIsTrip ??
+        (_selectedService == 'limousine' || _selectedService == 'motorcycle');
+    return PressableScale(
       onTap: () {
         Navigator.push(
           context,
@@ -1757,7 +1784,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'أسرع كابتن متاح في منطقتك • تسعيرة مرنة وتفاوض مباشر',
+                    '8.5 ج.م/كم • تسعيرة مرنة وتفاوض مباشر',
                     style: TextStyle(
                       color: Color(0xff94A3B8),
                       fontSize: 11.5,
@@ -1894,7 +1921,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildBookingForm(bool isLimousine) {
+  Widget _buildBookingForm(bool isTripForm) {
+    final isMotorcycle = _selectedService == 'motorcycle';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1973,7 +2001,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 14),
 
         // ── 2. Shipping Extra Options ──
-        if (!isLimousine) ...[
+        if (!isTripForm) ...[
           // Shipment Type Dropdown
           DropdownButtonFormField<String>(
             value: _shipmentType,
@@ -2123,7 +2151,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'المسافة المقدرة: ${_estimatedDistanceKm!.toStringAsFixed(1)} كم (8.5 ج.م/كم)',
+                        'المسافة المقدرة: ${_estimatedDistanceKm!.toStringAsFixed(1)} كم (${_pricePerKm} ج.م/كم)',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
@@ -2251,7 +2279,7 @@ class _HomeScreenState extends State<HomeScreen> {
           controller: _notesController,
           style: const TextStyle(color: Colors.white, fontSize: 13.5),
           decoration: _inputDecoration(
-            hintText: isLimousine
+            hintText: isTripForm
                 ? 'ملاحظات للسائق (اختياري)...'
                 : 'تفاصيل الشحنة أو متطلبات خاصة...',
             labelText: 'ملاحظات إضافية',
@@ -2266,18 +2294,18 @@ class _HomeScreenState extends State<HomeScreen> {
           isEnabled: !_isRequestingOrder,
           height: 54,
           borderRadius: 16,
-          glowColor: isLimousine
+          glowColor: isTripForm
               ? const Color(0xffF97316)
               : const Color(0xff06B6D4),
           gradient: LinearGradient(
-            colors: isLimousine
+            colors: isTripForm
                 ? const [Color(0xffF97316), Color(0xffEA580C)]
                 : const [Color(0xff06B6D4), Color(0xff0891B2)],
           ),
           onPressed: _isRequestingOrder
               ? null
               : () {
-                  if (isLimousine) {
+                  if (isTripForm) {
                     _requestLimousine();
                   } else {
                     _requestShipping();
@@ -2297,9 +2325,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 )
               else
                 Icon(
-                  isLimousine
-                      ? Icons.directions_car_rounded
-                      : Icons.local_shipping_outlined,
+                  isMotorcycle
+                      ? Icons.two_wheeler_rounded
+                      : isTripForm
+                          ? Icons.directions_car_rounded
+                          : Icons.local_shipping_outlined,
                   color: Colors.white,
                   size: 22,
                 ),
@@ -2307,9 +2337,11 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(
                 _isRequestingOrder
                     ? 'جاري إرسال الطلب...'
-                    : isLimousine
-                        ? 'تأكيد طلب ليموزين الآن ➔'
-                        : 'تأكيد طلب الشحن الآن ➔',
+                    : isMotorcycle
+                        ? 'تأكيد طلب موتوسيكل الآن ➔'
+                        : isTripForm
+                            ? 'تأكيد طلب ليموزين الآن ➔'
+                            : 'تأكيد طلب الشحن الآن ➔',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 16,

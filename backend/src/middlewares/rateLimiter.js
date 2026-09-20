@@ -43,6 +43,46 @@ export const authLimiter = rateLimit({
   },
 });
 
+// OTP limits are enforced per phone number in otpService (resend cooldown +
+// attempt cap). These IP limiters are only a coarse anti-abuse backstop, kept
+// loose on purpose because Egyptian mobile carriers NAT many users onto one IP.
+
+// Sending costs money, so this is the tighter of the two.
+export const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn('OTP send rate limit exceeded', {
+      ip: req.ip,
+      method: req.method,
+      url: req.url,
+    });
+    res.status(429).json({
+      error: 'عدد كبير من طلبات الكود. حاول بعد قليل.',
+    });
+  },
+});
+
+// Verifying is free and already capped at otpMaxAttempts per code.
+export const otpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn('OTP verify rate limit exceeded', {
+      ip: req.ip,
+      method: req.method,
+      url: req.url,
+    });
+    res.status(429).json({
+      error: 'عدد كبير من محاولات التأكيد. حاول بعد قليل.',
+    });
+  },
+});
+
 // Moderate rate limiter for sensitive operations
 export const sensitiveLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

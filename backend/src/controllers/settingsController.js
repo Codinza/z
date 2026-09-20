@@ -32,22 +32,27 @@ export const getPageContent = (req, res) => {
   res.json(page);
 };
 
-export const submitContactMessage = (req, res) => {
-  const { name, email, message, phone } = req.body;
-  if (!name || !email || !message) {
-    return res.status(400).json({ error: 'Missing required fields' });
+export const submitContactMessage = async (req, res) => {
+  try {
+    const { name, email, message, phone } = req.body;
+    if (!name || !email || !message) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    logger.info('New contact message received', { name, email, message, phone });
+
+    const ticket = await supportService.createTicket({
+      name,
+      email,
+      phone: phone || '',
+      message,
+      userId: req.user?.id || null,
+      role: req.user?.role || 'customer',
+    });
+
+    res.status(201).json({ success: true, message: 'تم إرسال رسالتك بنجاح', ticket });
+  } catch (error) {
+    logger.error('Failed to submit contact message', { error: error.message });
+    res.status(500).json({ error: 'Failed to submit message' });
   }
-
-  logger.info('New contact message received', { name, email, message, phone });
-
-  const ticket = supportService.createTicket({
-    name,
-    email,
-    phone: phone || '',
-    message,
-    userId: req.user?.id || null,
-    role: req.user?.role || 'customer',
-  });
-
-  res.status(201).json({ success: true, message: 'تم إرسال رسالتك بنجاح', ticket });
 };

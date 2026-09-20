@@ -1,7 +1,9 @@
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 import { tripService, emitOrderStatusChanged } from '../services/tripService.js';
 import { getOnlineDriversCount, getOnlineDriversList } from '../sockets/socketServer.js';
 import { supportService } from '../services/supportService.js';
+import { normalizePhone } from '../utils/phone.js';
 import logger from '../utils/logger.js';
 
 const prisma = new PrismaClient();
@@ -91,6 +93,86 @@ export const rejectDriver = async (req, res) => {
   } catch (error) {
     logger.error('Failed to reject driver', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to reject driver' });
+  }
+};
+
+/** Admin-only: create a driver already approved + phone verified (no OTP). */
+export const createApprovedDriver = async (req, res) => {
+  try {
+    const {
+      name,
+      phone,
+      password,
+      carModel,
+      carColor,
+      carYear,
+      plateNumber,
+      vehicleCategory,
+    } = req.body;
+
+    if (!name || !phone || !password) {
+      return res.status(400).json({ error: 'الاسم ورقم الهاتف وكلمة المرور مطلوبة' });
+    }
+
+    const normalizedPhone = normalizePhone(String(phone));
+    const existing = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+    if (existing) {
+      return res.status(409).json({ error: 'رقم الهاتف مسجل بالفعل' });
+    }
+
+    const category =
+      String(vehicleCategory || '').toLowerCase() === 'motorcycle'
+        ? 'motorcycle'
+        : 'car';
+    const hashedPassword = await bcrypt.hash(String(password), 12);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          name: String(name).trim(),
+          phone: normalizedPhone,
+          password: hashedPassword,
+          role: 'driver',
+          phoneVerified: true,
+        },
+      });
+
+      const driver = await tx.driver.create({
+        data: {
+          userId: user.id,
+          status: 'approved',
+          vehicleCategory: category,
+        },
+      });
+
+      if (plateNumber || carModel) {
+        await tx.car.create({
+          data: {
+            driverId: driver.id,
+            plateNumber: plateNumber || 'غير محدد',
+            model: carModel || (category === 'motorcycle' ? 'موتوسيكل' : 'سيدان'),
+            color: carColor || 'أبيض',
+            year: parseInt(carYear, 10) || new Date().getFullYear(),
+          },
+        });
+      }
+
+      return tx.driver.findUnique({
+        where: { id: driver.id },
+        include: { user: true, car: true },
+      });
+    });
+
+    res.status(201).json({
+      message: 'تم إنشاء السائق واعتماده بنجاح',
+      driver: result,
+    });
+  } catch (error) {
+    logger.error('Failed to create approved driver', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ error: 'فشل إنشاء السائق' });
   }
 };
 
@@ -383,11 +465,13 @@ export const getFinancesSummary = async (req, res) => {
   }
 };
 
-export const getSupportTickets = (req, res) => {
+export const getSupportTickets = async (req, res) => {
   try {
     const { status, search } = req.query;
-    const tickets = supportService.getTickets({ status, search });
-    const stats = supportService.getStats();
+    const [tickets, stats] = await Promise.all([
+      supportService.getTickets({ status, search }),
+      supportService.getStats(),
+    ]);
     res.json({ tickets, stats });
   } catch (error) {
     logger.error('Failed to get support tickets', { error: error.message });
@@ -395,11 +479,11 @@ export const getSupportTickets = (req, res) => {
   }
 };
 
-export const updateSupportTicket = (req, res) => {
+export const updateSupportTicket = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, adminReply } = req.body;
-    const updated = supportService.updateTicket(id, { status, adminReply });
+    const updated = await supportService.updateTicket(id, { status, adminReply });
     if (!updated) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
@@ -464,8 +548,8 @@ export const getAdminStats = async (req, res) => {
     const limousineCompanies = await prisma.company.count({ where: { companyType: 'LIMOUSINE' } });
     const shippingCompanies = await prisma.company.count({ where: { companyType: 'SHIPPING' } });
 
-    // Live stats from in-memory trip service
-    const tripStats = tripService.getTripStats();
+    // Trip stats from DB + live memory
+    const tripStats = await tripService.getTripStats();
 
     // Online drivers from socket server
     const onlineDriversCount = getOnlineDriversCount();
@@ -516,8 +600,9 @@ export const adminAcceptOrder = async (req, res) => {
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: {
-        status: 'COMPANY_ACCEPTED',
+        status: 'CONFIRMED',
         finalPrice: order.customerOfferPrice,
+        customerContactVisible: true,
       },
       include: { customer: true },
     });
@@ -526,7 +611,7 @@ export const adminAcceptOrder = async (req, res) => {
       data: {
         userId: updatedOrder.customerId,
         title: 'Order Accepted (Admin)',
-        body: `Your order has been accepted at ${updatedOrder.price || 0} EGP`,
+        body: `Your order has been accepted at ${updatedOrder.finalPrice || 0} EGP`,
         type: 'order_accepted',
         orderId: orderId,
       },
@@ -534,11 +619,11 @@ export const adminAcceptOrder = async (req, res) => {
 
     emitOrderStatusChanged({
       orderId,
-      status: 'COMPANY_ACCEPTED',
+      status: 'CONFIRMED',
       price: updatedOrder.finalPrice,
     });
 
-    res.json({ message: 'Order accepted', order: updatedOrder });
+    res.json({ message: 'Order accepted and confirmed', order: updatedOrder });
   } catch (error) {
     logger.error('Failed to accept order', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to accept order' });
@@ -586,7 +671,7 @@ export const adminRejectOrder = async (req, res) => {
 export const adminSendCounterOffer = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { offeredPrice } = req.body;
+    const { offeredPrice, companyId: bodyCompanyId } = req.body;
 
     if (!offeredPrice || offeredPrice <= 0) {
       return res.status(400).json({ error: 'Valid offered price is required' });
@@ -595,36 +680,34 @@ export const adminSendCounterOffer = async (req, res) => {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    let companyId = req.user?.companyId || order.companyId;
+    let companyId = bodyCompanyId || order.companyId || null;
+
     if (companyId) {
       const company = await prisma.company.findUnique({ where: { id: companyId } });
-      if (!company) companyId = null;
-    }
-    if (!companyId) {
-      let shippingCompany = await prisma.company.findFirst({
-        where: { companyType: 'SHIPPING', status: { in: ['active', 'approved'] } },
+      if (!company) {
+        return res.status(400).json({ error: 'Selected company was not found' });
+      }
+      if (company.companyType !== order.serviceType) {
+        return res.status(400).json({
+          error: `Company type must match order service type (${order.serviceType})`,
+        });
+      }
+    } else {
+      const matchingCompany = await prisma.company.findFirst({
+        where: {
+          companyType: order.serviceType,
+          status: { in: ['active', 'approved'] },
+        },
         orderBy: { createdAt: 'asc' },
       });
-      if (!shippingCompany) {
-        shippingCompany = await prisma.company.findFirst({
-          where: { companyType: 'SHIPPING' },
+
+      if (!matchingCompany) {
+        return res.status(400).json({
+          error:
+            'No active company available for this service type. Approve a company first, or pass companyId.',
         });
       }
-      if (!shippingCompany) {
-        shippingCompany = await prisma.company.findFirst();
-      }
-      if (!shippingCompany) {
-        shippingCompany = await prisma.company.create({
-          data: {
-            companyName: 'شركة النقل المعتمدة',
-            companyType: 'SHIPPING',
-            phone: '01000000000',
-            password: 'password_placeholder',
-            status: 'active',
-          },
-        });
-      }
-      companyId = shippingCompany.id;
+      companyId = matchingCompany.id;
     }
 
     const priceOffer = await prisma.priceOffer.create({

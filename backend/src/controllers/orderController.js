@@ -300,17 +300,26 @@ export const getOrderDetails = async (req, res) => {
       }
     }
 
-    // Mask sensitive data if user is not customer and order not confirmed
+    // Mask sensitive data unless the deal is confirmed or contact was unlocked.
     let processedOrder = { ...order };
-    if (
-      order.customerId !== userId &&
-      order.status !== 'CONFIRMED' &&
-      order.status !== 'COMPLETED' &&
-      order.status !== 'CANCELLED'
-    ) {
-      processedOrder.customer.phone = order.customer.phone
-        ? order.customer.phone.slice(0, 3) + '****' + order.customer.phone.slice(-2)
-        : null;
+    const canSeePhone =
+      order.customerId === userId ||
+      order.customerContactVisible === true ||
+      order.status === 'CONFIRMED' ||
+      order.status === 'COMPLETED' ||
+      req.user?.role === 'super_admin' ||
+      req.user?.role === 'admin';
+
+    if (!canSeePhone && processedOrder.customer) {
+      processedOrder = {
+        ...processedOrder,
+        customer: {
+          ...processedOrder.customer,
+          phone: order.customer.phone
+            ? order.customer.phone.slice(0, 3) + '****' + order.customer.phone.slice(-2)
+            : null,
+        },
+      };
     }
 
     res.json({ order: processedOrder });
@@ -347,10 +356,11 @@ export const approveCustomerPrice = async (req, res) => {
         .json({ error: 'Order must be in PRICE_SENT status' });
     }
 
+    // Customer accepted the company counter-offer — deal is closed.
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: {
-        status: 'CUSTOMER_APPROVED',
+        status: 'CONFIRMED',
         customerContactVisible: true,
         finalPrice: order.companyOfferPrice,
       },
@@ -371,12 +381,12 @@ export const approveCustomerPrice = async (req, res) => {
 
     emitOrderStatusChanged({
       orderId,
-      status: 'CUSTOMER_APPROVED',
+      status: 'CONFIRMED',
       price: updatedOrder.finalPrice,
     });
 
     res.json({
-      message: 'Price approved',
+      message: 'Price approved and order confirmed',
       order: updatedOrder,
     });
   } catch (error) {
@@ -454,6 +464,8 @@ export const confirmOrder = async (req, res) => {
   try {
     const orderId = req.params.orderId || req.params.id;
     const userId = req.user?.id;
+    const role = req.user?.role;
+    const companyId = req.user?.companyId;
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
@@ -463,25 +475,39 @@ export const confirmOrder = async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    if (order.status !== 'CUSTOMER_APPROVED') {
-      return res
-        .status(400)
-        .json({ error: 'Order must be in CUSTOMER_APPROVED status' });
+    const isAdmin = role === 'super_admin' || role === 'admin';
+    const isCustomer = order.customerId === userId;
+    const isAssignedCompany = companyId && order.companyId === companyId;
+
+    if (!isAdmin && !isCustomer && !isAssignedCompany) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Recover stuck legacy states and close the deal.
+    const confirmable = ['CUSTOMER_APPROVED', 'COMPANY_ACCEPTED'];
+    if (!confirmable.includes(order.status)) {
+      return res.status(400).json({
+        error: 'Order must be in CUSTOMER_APPROVED or COMPANY_ACCEPTED status',
+      });
     }
 
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: {
         status: 'CONFIRMED',
+        customerContactVisible: true,
+        finalPrice:
+          order.finalPrice ??
+          order.companyOfferPrice ??
+          order.customerOfferPrice,
       },
     });
 
-    // Create notification for customer
     await prisma.notification.create({
       data: {
         userId: order.customerId,
         title: 'Order Confirmed',
-        body: `Your ${order.serviceType.toLowerCase()} order has been confirmed. Final price: ${order.finalPrice} EGP`,
+        body: `Your ${order.serviceType.toLowerCase()} order has been confirmed. Final price: ${updatedOrder.finalPrice} EGP`,
         type: 'order_confirmed',
         orderId: orderId,
       },

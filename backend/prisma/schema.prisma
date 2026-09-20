@@ -16,6 +16,7 @@ model User {
   profileImage    String?  @db.Text
   password        String
   role            String   @default("customer")  // customer, driver, admin, company, super_admin
+  phoneVerified   Boolean  @default(false)
   walletBalance   Float    @default(0.0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -30,11 +31,27 @@ model User {
   priceOffers     PriceOffer[]
 }
 
+model OtpCode {
+  id          String    @id @default(cuid())
+  phone       String
+  codeHash    String
+  purpose     String    @default("REGISTRATION") // REGISTRATION, LOGIN, PASSWORD_RESET
+  attempts    Int       @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([phone, purpose])
+  @@index([expiresAt])
+}
+
 model Driver {
   id              String   @id @default(cuid())
   userId          String   @unique
   carId           String?  @unique
   status          String   @default("pending") // pending, approved, rejected
+  // car | motorcycle — used to match drivers with the right trip requests
+  vehicleCategory String   @default("car")
   licensePhotoUrl String?
   carPhotoUrl     String?
   walletBalance   Float    @default(0.0)
@@ -254,4 +271,21 @@ model Notification {
 
   user       User?    @relation(fields: [userId], references: [id])
   company    Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model SupportTicket {
+  id         String   @id @default(cuid())
+  name       String
+  email      String   @default("")
+  phone      String   @default("")
+  message    String   @db.Text
+  userId     String?
+  role       String   @default("customer")
+  status     String   @default("OPEN") // OPEN, RESOLVED, CLOSED
+  adminReply String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
 }

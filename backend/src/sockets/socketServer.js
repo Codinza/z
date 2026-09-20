@@ -17,16 +17,37 @@ export function initSocketServer(io) {
   io.on('connection', (socket) => {
     logger.info('Socket connected', { socketId: socket.id });
 
-    socket.on('driver:ready', async (driverId) => {
+    socket.on('driver:ready', async (payload) => {
+      const driverId =
+        typeof payload === 'string' ? payload : payload?.driverId;
+      const vehicleCategory =
+        typeof payload === 'object' && payload?.vehicleCategory === 'motorcycle'
+          ? 'motorcycle'
+          : 'car';
+
+      if (!driverId) return;
+
       socket.join(`driver:${driverId}`);
       socket.join('drivers');
+      socket.data.vehicleCategory = vehicleCategory;
       // Track this driver as online
       onlineDrivers.set(socket.id, driverId);
-      logger.info('Driver is now online', { driverId, onlineCount: onlineDrivers.size });
+      logger.info('Driver is now online', {
+        driverId,
+        vehicleCategory,
+        onlineCount: onlineDrivers.size,
+      });
       io.emit('driver:status', { driverId, ready: true, onlineCount: onlineDrivers.size });
-      // Sync pending rides as a batch without triggering individual trip_request alert storms
+      // Sync only pending rides that match this driver's vehicle category
       const pendingRides = await getPendingRides();
-      socket.emit('pending_rides_sync', pendingRides);
+      const matching = pendingRides.filter((ride) => {
+        const rideType =
+          String(ride.vehicleType || '').toLowerCase() === 'motorcycle'
+            ? 'motorcycle'
+            : 'car';
+        return rideType === vehicleCategory;
+      });
+      socket.emit('pending_rides_sync', matching);
     });
 
     socket.on('driver_location_update', async (data) => {

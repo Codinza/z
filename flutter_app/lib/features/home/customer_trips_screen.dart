@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../auth/api_service.dart';
 import 'order_tracking_screen.dart';
 import 'home_screen.dart';
+import 'customer_main_screen.dart';
 import '../../core/widgets/animations/zoon_animations.dart';
 
 class CustomerTripsScreen extends StatefulWidget {
@@ -116,26 +117,56 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xff0a0a0a),
+        backgroundColor: const Color(0xff0B0E14),
         appBar: AppBar(
-          backgroundColor: const Color(0xff111315),
+          backgroundColor: const Color(0xff12151A),
           elevation: 0,
-          title: const Text('رحلاتي',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold)),
+          title: const Text(
+            'رحلاتي',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
           centerTitle: true,
-          bottom: TabBar(
-            controller: _tabController,
-            indicatorColor: const Color(0xffF97316),
-            indicatorWeight: 3,
-            labelColor: const Color(0xffF97316),
-            unselectedLabelColor: const Color(0xff999999),
-            tabs: const [
-              Tab(text: 'الرحلات السابقة'),
-              Tab(text: 'الرحلات المتكررة'),
-            ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(52),
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: const Color(0xff161B26),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xff252E3E)),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicator: BoxDecoration(
+                  color: const Color(0xffF97316).withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xffF97316).withOpacity(0.45),
+                  ),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                labelColor: const Color(0xffF97316),
+                unselectedLabelColor: const Color(0xff94A3B8),
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.5,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 12.5,
+                ),
+                tabs: const [
+                  Tab(text: 'السابقة'),
+                  Tab(text: 'المتكررة'),
+                ],
+              ),
+            ),
           ),
         ),
         body: TabBarView(
@@ -150,29 +181,12 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
                     ),
                   )
                 : _errorMessage.isNotEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.error_outline,
-                                color: Color(0xffF97316), size: 48),
-                            const SizedBox(height: 16),
-                            Text(
-                              _errorMessage,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 14),
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: _loadPastTrips,
-                              style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xffF97316)),
-                              child: const Text('جرب مرة أخرى',
-                                  style: TextStyle(color: Colors.white)),
-                            ),
-                          ],
-                        ),
+                    ? ZoonEmptyState(
+                        title: 'تعذر التحميل',
+                        subtitle: _errorMessage,
+                        icon: Icons.wifi_off_rounded,
+                        actionLabel: 'إعادة المحاولة',
+                        onAction: _loadPastTrips,
                       )
                     : _pastTrips.isEmpty
                         ? ZoonEmptyState(
@@ -182,12 +196,7 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
                             icon: Icons.directions_car_filled_rounded,
                             actionLabel: 'طلب رحلة الآن',
                             onAction: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const HomeScreen(),
-                                ),
-                              );
+                              CustomerMainScreen.switchTab(context, 0);
                             },
                           )
                         : _buildPastTripsTab(),
@@ -271,47 +280,11 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
     }
 
     if (_recurringTrips.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 76,
-                height: 76,
-                decoration: BoxDecoration(
-                  color: const Color(0xffF97316).withOpacity(0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.repeat_rounded,
-                  size: 40,
-                  color: Color(0xffF97316),
-                ),
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'لا توجد رحلات متكررة بعد',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'عندما تطلب مشاويرك ووجهاتك أكثر من مرة، ستظهر هنا تلقائياً لتمكنك من حجزها بضغطة زر واحدة.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Color(0xff94A3B8),
-                  fontSize: 13.5,
-                  height: 1.5,
-                ),
-              ),
-            ],
-          ),
-        ),
+      return const ZoonEmptyState(
+        title: 'لا توجد رحلات متكررة بعد',
+        subtitle:
+            'عندما تطلب مشاويرك ووجهاتك أكثر من مرة، ستظهر هنا تلقائياً لتمكنك من حجزها بضغطة زر واحدة.',
+        icon: Icons.repeat_rounded,
       );
     }
 
@@ -355,9 +328,16 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
       scaleFactor: 0.97,
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xff111315),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xff2a2a2a), width: 1),
+          color: const Color(0xff121620),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xff252E3E), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -376,13 +356,13 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
                     color: statusColor.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(status,
                       style: TextStyle(
                           color: statusColor,
                           fontSize: 12,
-                          fontWeight: FontWeight.w500)),
+                          fontWeight: FontWeight.w600)),
                 ),
               ],
             ),
@@ -415,34 +395,32 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
               ],
             ),
             const SizedBox(height: 12),
-            const Divider(color: Color(0xff2a2a2a), height: 1),
+            const Divider(color: Color(0xff1E2633), height: 1),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(date,
                     style: const TextStyle(
-                        color: Color(0xff999999), fontSize: 12)),
+                        color: Color(0xff94A3B8), fontSize: 12)),
                 Text('$cost ج.م',
                     style: const TextStyle(
-                        color: Color(0xffF97316),
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold)),
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800)),
               ],
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
                 onPressed: onReorder,
-                icon: const Icon(Icons.replay_rounded, size: 18),
-                label: const Text('اطلب الرحلة مرة أخرى'),
-                style: OutlinedButton.styleFrom(
+                icon: const Icon(Icons.replay_rounded, size: 16),
+                label: const Text('إعادة الطلب'),
+                style: TextButton.styleFrom(
                   foregroundColor: const Color(0xffF97316),
-                  side: const BorderSide(color: Color(0xffF97316)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
                 ),
               ),
             ),
@@ -461,11 +439,13 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
     required String lastTrip,
     required VoidCallback onBook,
   }) {
-    return Container(
+    return PressableScale(
+      scaleFactor: 0.97,
+      child: Container(
       decoration: BoxDecoration(
-        color: const Color(0xff111315),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xff2a2a2a), width: 1),
+        color: const Color(0xff121620),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xff252E3E), width: 1),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -484,13 +464,13 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xffF97316).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Text('متكررة',
                     style: TextStyle(
                         color: Color(0xffF97316),
                         fontSize: 11,
-                        fontWeight: FontWeight.w500)),
+                        fontWeight: FontWeight.w600)),
               ),
             ],
           ),
@@ -554,7 +534,11 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
               onPressed: onBook,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xffF97316),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: const Text('اطلب الآن',
                   style: TextStyle(
@@ -562,6 +546,7 @@ class _CustomerTripsScreenState extends State<CustomerTripsScreen>
             ),
           ),
         ],
+      ),
       ),
     );
   }

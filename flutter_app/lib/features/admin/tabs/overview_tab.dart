@@ -129,10 +129,21 @@ class OverviewTab extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               _buildShortcutButton(
+                'الشركات',
+                Icons.business,
+                const Color(0xffF59E0B),
+                () => onNavigateToTab?.call(4),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildShortcutButton(
                 'الدعم الفني',
                 Icons.headset_mic,
-                const Color(0xffA855F7),
-                () => onNavigateToTab?.call(4),
+                const Color(0xffEF4444),
+                () => onNavigateToTab?.call(5),
               ),
             ],
           ),

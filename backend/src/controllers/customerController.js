@@ -223,46 +223,14 @@ export const customerController = {
     }
   },
 
-  // Add funds to wallet
-  addFunds: async (req, res) => {
-    try {
-      const userId = req.user?.id || req.user?.userId;
-      const { amount } = req.body;
-
-      if (!amount || amount <= 0) {
-        return res.status(400).json({ error: 'Invalid amount' });
-      }
-
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data: {
-          walletBalance: {
-            increment: amount,
-          },
-        },
-        select: {
-          walletBalance: true,
-        },
-      });
-
-      // Create payment record
-      await prisma.payment.create({
-        data: {
-          userId,
-          amount,
-          status: 'completed',
-          paymentMethod: 'card',
-        },
-      });
-
-      res.json({
-        success: true,
-        newBalance: user.walletBalance,
-      });
-    } catch (error) {
-      logger.error('Failed to add funds', { error: error.message, stack: error.stack });
-      res.status(500).json({ error: 'Failed to add funds' });
-    }
+  // Wallet top-ups must go through a real payment provider / admin review.
+  // Direct crediting was removed because any authenticated customer could
+  // mint arbitrary balance.
+  addFunds: async (_req, res) => {
+    return res.status(501).json({
+      success: false,
+      error: 'شحن الرصيد المباشر غير متاح. استخدم بوابة الدفع المعتمدة.',
+    });
   },
 
   // Get customer recurring trips (aggregated from real trips & orders)

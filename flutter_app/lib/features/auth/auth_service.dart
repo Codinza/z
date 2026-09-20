@@ -19,6 +19,7 @@ class AuthService {
   static const String _userPhoneKey = 'user_phone';
   static const String _driverStatusKey = 'driver_status';
   static const String _companyIdKey = 'company_id';
+  static const String _vehicleCategoryKey = 'vehicle_category';
 
   static Future<Dio> getAuthenticatedDio() async {
     final token = await getToken();
@@ -46,28 +47,90 @@ class AuthService {
     String? carColor,
     String? carYear,
     String? plateNumber,
+    String? vehicleCategory,
   }) async {
     try {
       final response = await _dio.post('/api/auth/register', data: {
         'name': name, 'phone': phone, 'password': password,
         'email': email?.trim().isEmpty == true ? null : email?.trim(), 'role': role,
         'carModel': carModel, 'carColor': carColor, 'carYear': carYear, 'plateNumber': plateNumber,
+        if (role == 'driver')
+          'vehicleCategory': vehicleCategory == 'motorcycle' ? 'motorcycle' : 'car',
       });
       if (response.statusCode == 201) {
-        await _saveAuthData(response.data);
-        return response.data;
+        final data = Map<String, dynamic>.from(response.data as Map);
+        // Phone verification gate: tokens are issued only after OTP confirm.
+        if (data['requiresVerification'] == true || data['accessToken'] == null) {
+          return data;
+        }
+        await _saveAuthData(data);
+        return data;
       }
       return null;
     } on DioException catch (e) {
       final responseData = e.response?.data;
-      if (responseData is Map<String, dynamic>) {
-        return responseData;
+      if (responseData is Map) {
+        return Map<String, dynamic>.from(responseData);
       }
       return {
         'error': e.type == DioExceptionType.connectionError ||
                 e.type == DioExceptionType.connectionTimeout
             ? 'تعذر الاتصال بالخادم. تأكد من اتصال الإنترنت وحاول مرة أخرى.'
             : 'فشل إنشاء الحساب. حاول مرة أخرى.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>?> verifyPhone({
+    required String phone,
+    required String code,
+  }) async {
+    try {
+      final response = await _dio.post('/api/auth/verify-phone', data: {
+        'phone': phone,
+        'code': code,
+      });
+      if (response.statusCode == 200) {
+        final data = Map<String, dynamic>.from(response.data as Map);
+        await _saveAuthData(data);
+        return data;
+      }
+      return null;
+    } on DioException catch (e) {
+      final responseData = e.response?.data;
+      if (responseData is Map) {
+        return Map<String, dynamic>.from(responseData);
+      }
+      return {
+        'error': e.type == DioExceptionType.connectionError ||
+                e.type == DioExceptionType.connectionTimeout
+            ? 'تعذر الاتصال بالخادم. تأكد من اتصال الإنترنت وحاول مرة أخرى.'
+            : 'فشل تأكيد رقم الموبايل. حاول مرة أخرى.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>?> resendVerificationCode({
+    required String phone,
+  }) async {
+    try {
+      final response = await _dio.post('/api/auth/resend-code', data: {
+        'phone': phone,
+      });
+      if (response.statusCode == 200) {
+        return Map<String, dynamic>.from(response.data as Map);
+      }
+      return null;
+    } on DioException catch (e) {
+      final responseData = e.response?.data;
+      if (responseData is Map) {
+        return Map<String, dynamic>.from(responseData);
+      }
+      return {
+        'error': e.type == DioExceptionType.connectionError ||
+                e.type == DioExceptionType.connectionTimeout
+            ? 'تعذر الاتصال بالخادم. تأكد من اتصال الإنترنت وحاول مرة أخرى.'
+            : 'فشل إرسال الكود. حاول مرة أخرى.',
       };
     }
   }
@@ -87,8 +150,8 @@ class AuthService {
       return null;
     } on DioException catch (e) {
       final responseData = e.response?.data;
-      if (responseData is Map<String, dynamic>) {
-        return responseData;
+      if (responseData is Map) {
+        return Map<String, dynamic>.from(responseData);
       }
       return {
         'error': e.type == DioExceptionType.connectionError ||
@@ -209,6 +272,12 @@ class AuthService {
         // Default to pending for drivers when status is not provided
         await prefs.setString(_driverStatusKey, 'pending');
       }
+      final category = user['vehicleCategory'] ??
+          data['driver']?['vehicleCategory'] ??
+          (user['role'] == 'driver' ? 'car' : null);
+      if (category != null) {
+        await prefs.setString(_vehicleCategoryKey, category.toString());
+      }
       if (user['companyId'] != null) {
         await prefs.setString(_companyIdKey, user['companyId']);
       }
@@ -237,14 +306,13 @@ class AuthService {
   static Future<String?> getUserName() async {
     final prefs = await SharedPreferences.getInstance();
     final name = prefs.getString(_userNameKey);
-    if (name != null && name.isNotEmpty && name != 'a' && name != 'User Dummy') {
+    if (name != null &&
+        name.isNotEmpty &&
+        name != 'a' &&
+        name != 'User Dummy') {
       return name;
     }
-    final userId = prefs.getString(_userIdKey);
-    if (userId == 'cmtbv7t8k0000uuf4tbq7ywtj') {
-      return 'أيمن';
-    }
-    return name ?? 'أيمن';
+    return null;
   }
 
   static Future<void> setUserName(String name) async {
@@ -261,11 +329,7 @@ class AuthService {
         !phone.contains('dummy')) {
       return phone;
     }
-    final userId = prefs.getString(_userIdKey);
-    if (userId == 'cmtbv7t8k0000uuf4tbq7ywtj') {
-      return '01273381289';
-    }
-    return phone ?? '01273381289';
+    return null;
   }
 
   static Future<void> setUserPhone(String phone) async {
@@ -283,6 +347,20 @@ class AuthService {
     return prefs.getString(_driverStatusKey);
   }
 
+  static Future<String> getVehicleCategory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_vehicleCategoryKey);
+    return value == 'motorcycle' ? 'motorcycle' : 'car';
+  }
+
+  static Future<void> setVehicleCategory(String category) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _vehicleCategoryKey,
+      category == 'motorcycle' ? 'motorcycle' : 'car',
+    );
+  }
+
   /// Fetches the latest driver status from the backend and updates local storage.
   /// Returns the refreshed status string, or null on failure.
   static Future<String?> refreshDriverStatus() async {
@@ -296,6 +374,13 @@ class AuthService {
           final status = driverInfo['status'] as String;
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(_driverStatusKey, status);
+          final category = driverInfo['vehicleCategory']?.toString();
+          if (category != null && category.isNotEmpty) {
+            await prefs.setString(
+              _vehicleCategoryKey,
+              category == 'motorcycle' ? 'motorcycle' : 'car',
+            );
+          }
           return status;
         }
       }
@@ -329,6 +414,7 @@ class AuthService {
     await prefs.remove(_userNameKey);
     await prefs.remove(_driverStatusKey);
     await prefs.remove(_companyIdKey);
+    await prefs.remove(_vehicleCategoryKey);
     _authenticatedDio = null;
   }
 }

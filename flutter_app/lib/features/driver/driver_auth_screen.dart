@@ -26,6 +26,7 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
 
   bool _isLoading = false;
   bool _obscurePassword = true;
+  String _vehicleCategory = 'car'; // car | motorcycle
 
   @override
   void initState() {
@@ -61,7 +62,11 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
     }
 
     if (carModel.isEmpty || carColor.isEmpty || carYear.isEmpty || plateNumber.isEmpty) {
-      _showErrorSnackBar('يرجى إدخال بيانات السيارة كاملة (الموديل، اللون، السنة، اللوحة)');
+      _showErrorSnackBar(
+        _vehicleCategory == 'motorcycle'
+            ? 'يرجى إدخال بيانات الموتوسيكل كاملة (الموديل، اللون، السنة، اللوحة)'
+            : 'يرجى إدخال بيانات السيارة كاملة (الموديل، اللون، السنة، اللوحة)',
+      );
       return;
     }
 
@@ -78,6 +83,7 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
         carColor: carColor,
         carYear: carYear,
         plateNumber: plateNumber,
+        vehicleCategory: _vehicleCategory,
       );
 
       if (!mounted) return;
@@ -327,13 +333,48 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  _buildSectionTitle('بيانات السيارة والترخيص', Icons.directions_car),
+                  _buildSectionTitle('نوع المركبة', Icons.two_wheeler),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildVehicleCategoryChip(
+                          value: 'car',
+                          label: 'سيارة',
+                          icon: Icons.directions_car_filled_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildVehicleCategoryChip(
+                          value: 'motorcycle',
+                          label: 'موتوسيكل',
+                          icon: Icons.two_wheeler_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _buildSectionTitle(
+                    _vehicleCategory == 'motorcycle'
+                        ? 'بيانات الموتوسيكل والترخيص'
+                        : 'بيانات السيارة والترخيص',
+                    _vehicleCategory == 'motorcycle'
+                        ? Icons.two_wheeler
+                        : Icons.directions_car,
+                  ),
                   const SizedBox(height: 12),
                   _buildTextField(
                     controller: _carModelController,
-                    label: 'نوع وموديل السيارة',
-                    hint: 'مثال: نيسان صني / تويوتا كورولا',
-                    icon: Icons.directions_car_outlined,
+                    label: _vehicleCategory == 'motorcycle'
+                        ? 'نوع وموديل الموتوسيكل'
+                        : 'نوع وموديل السيارة',
+                    hint: _vehicleCategory == 'motorcycle'
+                        ? 'مثال: هوندا شادو / ياماها'
+                        : 'مثال: نيسان صني / تويوتا كورولا',
+                    icon: _vehicleCategory == 'motorcycle'
+                        ? Icons.two_wheeler_outlined
+                        : Icons.directions_car_outlined,
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -341,8 +382,10 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
                       Expanded(
                         child: _buildTextField(
                           controller: _carColorController,
-                          label: 'لون السيارة',
-                          hint: 'مثال: فضي',
+                          label: _vehicleCategory == 'motorcycle'
+                              ? 'لون الموتوسيكل'
+                              : 'لون السيارة',
+                          hint: 'مثال: أسود',
                           icon: Icons.color_lens_outlined,
                         ),
                       ),
@@ -418,6 +461,46 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleCategoryChip({
+    required String value,
+    required String label,
+    required IconData icon,
+  }) {
+    final selected = _vehicleCategory == value;
+    return GestureDetector(
+      onTap: () => setState(() => _vehicleCategory = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xffF97316).withOpacity(0.2)
+              : Colors.white.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? const Color(0xffF97316) : Colors.white24,
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(icon,
+                color: selected ? const Color(0xffF97316) : Colors.white70,
+                size: 26),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.white70,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
       ),
     );
