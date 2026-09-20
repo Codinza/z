@@ -159,58 +159,69 @@ class _ZoonLuxuryVehicleVisualizerState extends State<ZoonLuxuryVehicleVisualize
             // Text Header Overlay (if provided)
             if (widget.title != null || widget.subtitle != null)
               Positioned(
-                top: 12,
-                left: 16,
-                right: 16,
+                top: 10,
+                left: 12,
+                right: 12,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     if (widget.title != null)
-                      Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: widget.primaryColor,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: widget.primaryColor.withOpacity(0.8),
-                                  blurRadius: 6,
-                                  spreadRadius: 1,
+                      Flexible(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: widget.primaryColor,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: widget.primaryColor.withOpacity(0.8),
+                                    blurRadius: 6,
+                                    spreadRadius: 1,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                widget.title!,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.2,
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            widget.title!,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                    if (widget.subtitle != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: Colors.white.withOpacity(0.12), width: 0.8),
+                          ],
                         ),
-                        child: Text(
-                          widget.subtitle!,
-                          style: TextStyle(
-                            color: widget.primaryColor,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                      ),
+                    const SizedBox(width: 6),
+                    if (widget.subtitle != null)
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2.5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.12), width: 0.8),
+                          ),
+                          child: Text(
+                            widget.subtitle!,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: widget.primaryColor,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ),
