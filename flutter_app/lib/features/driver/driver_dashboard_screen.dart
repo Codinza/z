@@ -1697,8 +1697,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                 ),
                               )
                             else
-                              PressableScale(
-                                onTap: () async {
+                              ShimmerGlowButton(
+                                height: 50,
+                                borderRadius: 14,
+                                glowColor: const Color(0xffF97316),
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xffF97316),
+                                    Color(0xffEA580C)
+                                  ],
+                                ),
+                                onPressed: () async {
                                   final amount = double.tryParse(
                                           controller?.text ?? '') ??
                                       fareEstimate;
@@ -1717,43 +1726,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                     });
                                   }
                                 },
-                                child: Container(
-                                  width: double.infinity,
-                                  height: 50,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [
-                                        Color(0xffF97316),
-                                        Color(0xffEA580C)
-                                      ],
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.send_rounded,
+                                        color: Colors.white, size: 20),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'إرسال العرض للعميل',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                      ),
                                     ),
-                                    borderRadius: BorderRadius.circular(14),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xffF97316)
-                                            .withOpacity(0.35),
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: const Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.send_rounded,
-                                          color: Colors.white, size: 20),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        'إرسال العرض للعميل',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w800,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                  ],
                                 ),
                               ),
                           ],

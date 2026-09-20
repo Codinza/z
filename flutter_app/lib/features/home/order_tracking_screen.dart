@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
@@ -1081,29 +1082,32 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           // Markers Layer
                           MarkerLayer(
                             markers: [
-                              // Pickup Marker
+                              // Pickup Marker (Animated radar sweep when searching, GPS beacon when accepted)
                               Marker(
                                 point: pickup,
-                                width: 50,
-                                height: 50,
-                                child: _buildLocationPin(
-                                  icon: Icons.person_pin_circle_rounded,
-                                  color: _hasAcceptedPartner(status)
-                                      ? const Color(0xff22C55E)
-                                      : const Color(0xffF97316),
-                                  isPickup: true,
-                                ),
+                                width: _hasAcceptedPartner(status) ? 54 : 96,
+                                height: _hasAcceptedPartner(status) ? 54 : 96,
+                                child: _hasAcceptedPartner(status)
+                                    ? const GpsRadarMarker(
+                                        color: Color(0xff22C55E),
+                                        size: 54,
+                                        icon: Icons.person_pin_circle_rounded,
+                                      )
+                                    : const AnimatedSearchingRadarPin(
+                                        color: Color(0xffF97316),
+                                        size: 96,
+                                      ),
                               ),
 
-                              // Dropoff Marker
+                              // Dropoff Marker (Animated spring pin drop)
                               Marker(
                                 point: dropoff,
-                                width: 50,
-                                height: 50,
-                                child: _buildLocationPin(
-                                  icon: Icons.location_on_rounded,
-                                  color: const Color(0xffEF4444),
-                                  isPickup: false,
+                                width: 54,
+                                height: 60,
+                                child: const AnimatedPinDropMarker(
+                                  icon: Icons.flag_rounded,
+                                  color: Color(0xffEF4444),
+                                  size: 44,
                                 ),
                               ),
 
@@ -1112,8 +1116,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                   _hasAcceptedPartner(status))
                                 Marker(
                                   point: _driverLocation!,
-                                  width: 72,
-                                  height: 72,
+                                  width: 80,
+                                  height: 80,
                                   child: _buildDriverVehicleMarker(isShipping),
                                 ),
                             ],
@@ -1294,6 +1298,25 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                         : 'الكابتن متوجه إليك الآن',
                                     subtitle: 'تتبع حركة المركبة مباشرة على الخريطة',
                                   ),
+                                ] else if (status != 'COMPLETED' &&
+                                    status != 'CANCELLED') ...[
+                                  const SizedBox(height: 14),
+                                  ZoonLuxuryVehicleVisualizer(
+                                    vehicleType: isShipping
+                                        ? ZoonVehicleType.halfTruck
+                                        : ZoonVehicleType.limousine,
+                                    height: 120,
+                                    title: isShipping
+                                        ? 'أسطول النقل والشحن في حالة ترقب'
+                                        : 'رادار كباتن زوون VIP نشط',
+                                    subtitle: 'جاري البحث عن كابتن متاح في منطقتك 📡',
+                                    primaryColor: isShipping
+                                        ? const Color(0xff06B6D4)
+                                        : const Color(0xffF97316),
+                                    underglowColor: isShipping
+                                        ? const Color(0xff06B6D4)
+                                        : const Color(0xffF97316),
+                                  ),
                                 ],
 
                                 const SizedBox(height: 18),
@@ -1395,34 +1418,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
-  Widget _buildLocationPin({
-    required IconData icon,
-    required Color color,
-    required bool isPickup,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2.5),
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.4),
-                blurRadius: 12,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: Icon(icon, color: Colors.white, size: 20),
-        ),
-      ],
-    );
-  }
 
   Widget _buildDriverVehicleMarker(bool isShipping) {
     final driver = _order?['driver'] as Map?;
@@ -1430,68 +1425,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         _order?['driverName']?.toString() ??
         'الكابتن';
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-          decoration: BoxDecoration(
-            color: const Color(0xff111315),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: const Color(0xff22C55E), width: 1.2),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black54,
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.navigation_rounded,
-                  color: Color(0xff22C55E), size: 10),
-              const SizedBox(width: 3),
-              Text(
-                driverName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 3),
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: const Color(0xff1A1D21),
-            shape: BoxShape.circle,
-            border: Border.all(color: const Color(0xff22C55E), width: 2.5),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xff22C55E).withOpacity(0.55),
-                blurRadius: 16,
-                spreadRadius: 3,
-              ),
-            ],
-          ),
-          child: Center(
-            child: Icon(
-              isShipping
-                  ? Icons.local_shipping_rounded
-                  : Icons.directions_car_rounded,
-              color: const Color(0xff22C55E),
-              size: 24,
-            ),
-          ),
-        ),
-      ],
+    return AnimatedGlidingVehicleMarker(
+      driverName: driverName,
+      isShipping: isShipping,
+      heading: _calculateDriverHeading(),
+      themeColor: const Color(0xff22C55E),
     );
+  }
+
+  double _calculateDriverHeading() {
+    final rawHeading =
+        (_order?['driver']?['heading'] ?? _order?['driverHeading']);
+    if (rawHeading is num) return rawHeading.toDouble();
+    if (_driverLocation != null && _driverToPickupRoute.length >= 2) {
+      final p1 = _driverToPickupRoute.first;
+      final p2 = _driverToPickupRoute[1];
+      final dy = p2.latitude - p1.latitude;
+      final dx = (p2.longitude - p1.longitude) * 0.86;
+      final rad = math.atan2(dx, dy);
+      return (rad * 180 / math.pi) % 360;
+    }
+    return 0.0;
   }
 
   Widget _buildTimeline(String? status) {
@@ -2040,6 +1994,37 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               offer['profileImage']?.toString();
           final rating = (offer['rating'] as num?)?.toDouble() ?? 5.0;
           final totalRatings = (offer['totalRatings'] as num?)?.toInt() ?? 0;
+
+          if (!isAccepted && _isTrip && status == 'pending') {
+            return AnimatedOfferCard(
+              driverName: name,
+              price: price ?? 0.0,
+              rating: rating,
+              totalRatings: totalRatings,
+              carDescription: offer['vehicleModel']?.toString() ??
+                  offer['carModel']?.toString(),
+              driverImage: driverImage,
+              onAccept: () => _acceptDriverOffer(offer['driverId'].toString()),
+            );
+          }
+
+          if (!isAccepted &&
+              !_isTrip &&
+              (status == 'pending' ||
+                  status == 'PENDING' ||
+                  status == 'PRICE_SENT' ||
+                  status == null)) {
+            return AnimatedOfferCard(
+              driverName: name,
+              price: price ?? 0.0,
+              rating: rating,
+              totalRatings: totalRatings,
+              carDescription: 'عرض تسعيرة لنقل الشحنة',
+              driverImage: driverImage,
+              onAccept: _approveOrderPrice,
+              onReject: _rejectOrderPrice,
+            );
+          }
 
           return Container(
             margin: const EdgeInsets.only(bottom: 10),

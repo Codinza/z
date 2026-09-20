@@ -1653,7 +1653,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHeroLimousineCard(bool isSelected) {
-    return GestureDetector(
+    return PressableScale(
       onTap: () {
         setState(() {
           _selectedService = 'limousine';
@@ -1801,7 +1801,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required bool isSelected,
     bool isComingSoon = false,
   }) {
-    return GestureDetector(
+    return PressableScale(
       onTap: () {
         if (isComingSoon) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2262,54 +2262,61 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 18),
 
         // ── 5. Primary Action CTA Button ──
-        PressableScale(
-          scaleFactor: 0.97,
-          child: ElevatedButton.icon(
-            onPressed: _isRequestingOrder
-                ? null
-                : () {
-                    if (isLimousine) {
-                      _requestLimousine();
-                    } else {
-                      _requestShipping();
-                    }
-                  },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xffF97316),
-              foregroundColor: Colors.white,
-              elevation: 4,
-              shadowColor: const Color(0xffF97316).withOpacity(0.4),
-              minimumSize: const Size.fromHeight(54),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            icon: _isRequestingOrder
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2.2,
-                    ),
-                  )
-                : Icon(
-                    isLimousine
-                        ? Icons.directions_car_rounded
-                        : Icons.local_shipping_outlined,
-                    size: 22,
+        ShimmerGlowButton(
+          isEnabled: !_isRequestingOrder,
+          height: 54,
+          borderRadius: 16,
+          glowColor: isLimousine
+              ? const Color(0xffF97316)
+              : const Color(0xff06B6D4),
+          gradient: LinearGradient(
+            colors: isLimousine
+                ? const [Color(0xffF97316), Color(0xffEA580C)]
+                : const [Color(0xff06B6D4), Color(0xff0891B2)],
+          ),
+          onPressed: _isRequestingOrder
+              ? null
+              : () {
+                  if (isLimousine) {
+                    _requestLimousine();
+                  } else {
+                    _requestShipping();
+                  }
+                },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_isRequestingOrder)
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2.2,
                   ),
-            label: Text(
-              _isRequestingOrder
-                  ? 'جاري إرسال الطلب...'
-                  : isLimousine
-                      ? 'تأكيد طلب ليموزين الآن ➔'
-                      : 'تأكيد طلب الشحن الآن ➔',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
+                )
+              else
+                Icon(
+                  isLimousine
+                      ? Icons.directions_car_rounded
+                      : Icons.local_shipping_outlined,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              const SizedBox(width: 8),
+              Text(
+                _isRequestingOrder
+                    ? 'جاري إرسال الطلب...'
+                    : isLimousine
+                        ? 'تأكيد طلب ليموزين الآن ➔'
+                        : 'تأكيد طلب الشحن الآن ➔',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ],

@@ -3,7 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import '../../core/widgets/animations/pressable_scale.dart';
+import '../../core/widgets/animations/zoon_animations.dart';
 
 class DriverTripRouteMapScreen extends StatefulWidget {
   final Map<String, dynamic> trip;
@@ -253,8 +253,14 @@ class _DriverTripRouteMapScreenState extends State<DriverTripRouteMapScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                PressableScale(
-                  onTap: () async {
+                ShimmerGlowButton(
+                  height: 50,
+                  borderRadius: 14,
+                  glowColor: const Color(0xffF97316),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xffF97316), Color(0xffEA580C)],
+                  ),
+                  onPressed: () async {
                     final entered = double.tryParse(controller.text) ?? fare;
                     final nav = Navigator.of(context);
                     Navigator.pop(ctx);
@@ -264,38 +270,20 @@ class _DriverTripRouteMapScreenState extends State<DriverTripRouteMapScreen> {
                     if (!mounted) return;
                     nav.pop();
                   },
-                  child: Container(
-                    width: double.infinity,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xffF97316), Color(0xffEA580C)],
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'إرسال العرض للعميل',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xffF97316).withOpacity(0.35),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    alignment: Alignment.center,
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.send_rounded, color: Colors.white, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'إرسال العرض للعميل',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
               ],
@@ -1010,45 +998,32 @@ class _DriverTripRouteMapScreenState extends State<DriverTripRouteMapScreen> {
                             ),
                           )
                         else
-                          PressableScale(
-                            onTap: _showOfferBottomSheet,
-                            child: Container(
-                              width: double.infinity,
-                              height: 50,
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    Color(0xffF97316),
-                                    Color(0xffEA580C)
-                                  ],
+                          ShimmerGlowButton(
+                            height: 50,
+                            borderRadius: 14,
+                            glowColor: const Color(0xffF97316),
+                            gradient: const LinearGradient(
+                              colors: [
+                                Color(0xffF97316),
+                                Color(0xffEA580C)
+                              ],
+                            ),
+                            onPressed: _showOfferBottomSheet,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.send_rounded,
+                                    color: Colors.white, size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'تقديم عرض سعر للعميل (${_fareEstimate.toStringAsFixed(0)} ج.م) 🚀',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xffF97316)
-                                        .withOpacity(0.35),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                              ),
-                              alignment: Alignment.center,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.send_rounded,
-                                      color: Colors.white, size: 20),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'تقديم عرض سعر للعميل (${_fareEstimate.toStringAsFixed(0)} ج.م) 🚀',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                              ],
                             ),
                           ),
                     ],
