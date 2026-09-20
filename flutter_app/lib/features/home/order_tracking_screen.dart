@@ -30,6 +30,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   static const _defaultLocation = LatLng(30.0444, 31.2357);
 
   final MapController _mapController = MapController();
+  final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+  bool _isSheetCollapsed = false;
   socket_io.Socket? _socket;
   Timer? _refreshTimer;
   Map<String, dynamic>? _order;
@@ -47,6 +50,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   @override
   void initState() {
     super.initState();
+    _sheetController.addListener(() {
+      final isCollapsed =
+          _sheetController.isAttached && _sheetController.size < 0.18;
+      if (isCollapsed != _isSheetCollapsed && mounted) {
+        setState(() {
+          _isSheetCollapsed = isCollapsed;
+        });
+      }
+    });
     _isTrip = widget.isTrip;
     _loadOrder();
     _connectSocket();
@@ -961,10 +973,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   @override
   void dispose() {
+    _sheetController.dispose();
     _refreshTimer?.cancel();
     _driverMovementTimer?.cancel();
     _socket?.disconnect();
     super.dispose();
+  }
+
+  void _toggleSheet() {
+    if (_sheetController.isAttached) {
+      if (_sheetController.size > 0.18) {
+        _sheetController.animateTo(
+          0.08,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeInOutCubic,
+        );
+      } else {
+        _sheetController.animateTo(
+          0.52,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    }
   }
 
   @override
@@ -1172,48 +1203,94 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                               },
                               tooltip: 'تصغير',
                             ),
+                            const SizedBox(height: 8),
+                            _buildFloatingMapButton(
+                              icon: _isSheetCollapsed
+                                  ? Icons.receipt_long_rounded
+                                  : Icons.map_rounded,
+                              onTap: _toggleSheet,
+                              tooltip: _isSheetCollapsed
+                                  ? 'إظهار تفاصيل الرحلة'
+                                  : 'عرض الخريطة كاملة',
+                            ),
                           ],
                         ),
                       ),
 
-                      // Bottom Tracking Sheet
-                      Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Container(
-                          constraints: BoxConstraints(
-                            maxHeight:
-                                MediaQuery.of(context).size.height * 0.56,
-                          ),
-                          decoration: const BoxDecoration(
-                            color: Color(0xff111315),
-                            borderRadius: BorderRadius.vertical(
-                              top: Radius.circular(24),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black87,
-                                blurRadius: 28,
-                                offset: Offset(0, -6),
+                      // Bottom Tracking Sheet (Draggable & Collapsible to reveal full map)
+                      DraggableScrollableSheet(
+                        controller: _sheetController,
+                        initialChildSize: 0.52,
+                        minChildSize: 0.08,
+                        maxChildSize: 0.88,
+                        snap: true,
+                        snapSizes: const [0.08, 0.52, 0.88],
+                        builder: (context, scrollController) {
+                          return Container(
+                            decoration: const BoxDecoration(
+                              color: Color(0xff111315),
+                              borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(24),
                               ),
-                            ],
-                          ),
-                          child: SingleChildScrollView(
-                            padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                // Handle bar
-                                Center(
-                                  child: Container(
-                                    width: 40,
-                                    height: 4,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xff4B5563),
-                                      borderRadius: BorderRadius.circular(2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black87,
+                                  blurRadius: 28,
+                                  offset: Offset(0, -6),
+                                ),
+                              ],
+                            ),
+                            child: SingleChildScrollView(
+                              controller: scrollController,
+                              physics: const ClampingScrollPhysics(),
+                              padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // Interactive Handle Bar (Tap to toggle collapse / expand)
+                                  GestureDetector(
+                                    onTap: _toggleSheet,
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Center(
+                                      child: Column(
+                                        children: [
+                                          Container(
+                                            width: 44,
+                                            height: 5,
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xff4B5563),
+                                              borderRadius: BorderRadius.circular(3),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                _isSheetCollapsed
+                                                    ? Icons.keyboard_arrow_up_rounded
+                                                    : Icons.keyboard_arrow_down_rounded,
+                                                color: const Color(0xff9CA3AF),
+                                                size: 18,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                _isSheetCollapsed
+                                                    ? 'اسحب أو اضغط لعرض تفاصيل الرحلة والعروض ⬆️'
+                                                    : 'اسحب لأسفل لتكبير الخريطة بالكامل 🗺️',
+                                                style: const TextStyle(
+                                                  color: Color(0xff9CA3AF),
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(height: 16),
+                                  const SizedBox(height: 12),
 
                                 // Status Header
                                 Row(
@@ -1393,7 +1470,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                               ],
                             ),
                           ),
-                        ),
+                        );
+                        },
                       ),
                     ],
                   ),
