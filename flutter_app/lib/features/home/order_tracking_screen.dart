@@ -1026,6 +1026,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         body: _isLoading
             ? ZoonDispatchLoadingScreen(
                 isShipping: !_isTrip,
+                isMotorcycle: (_order?['vehicleType']?.toString().toLowerCase() ==
+                        'motorcycle') ||
+                    (_order?['vehicleCategory']?.toString().toLowerCase() ==
+                        'motorcycle'),
                 onBack: () => Navigator.of(context).pop(),
               )
             : _error != null
@@ -1226,16 +1230,20 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         snapSizes: const [0.08, 0.52, 0.88],
                         builder: (context, scrollController) {
                           return Container(
-                            decoration: const BoxDecoration(
-                              color: Color(0xff111315),
-                              borderRadius: BorderRadius.vertical(
+                            decoration: BoxDecoration(
+                              color: const Color(0xff0F131A),
+                              borderRadius: const BorderRadius.vertical(
                                 top: Radius.circular(24),
+                              ),
+                              border: Border.all(
+                                color: const Color(0xff1E2633),
+                                width: 1,
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black87,
-                                  blurRadius: 28,
-                                  offset: Offset(0, -6),
+                                  color: Colors.black.withOpacity(0.45),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, -4),
                                 ),
                               ],
                             ),
@@ -1275,12 +1283,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                               const SizedBox(width: 4),
                                               Text(
                                                 _isSheetCollapsed
-                                                    ? 'اسحب أو اضغط لعرض تفاصيل الرحلة والعروض ⬆️'
-                                                    : 'اسحب لأسفل لتكبير الخريطة بالكامل 🗺️',
+                                                    ? 'اسحب لعرض التفاصيل'
+                                                    : 'اسحب لتكبير الخريطة',
                                                 style: const TextStyle(
-                                                  color: Color(0xff9CA3AF),
+                                                  color: Color(0xff64748B),
                                                   fontSize: 11,
-                                                  fontWeight: FontWeight.w600,
+                                                  fontWeight: FontWeight.w500,
                                                 ),
                                               ),
                                             ],
@@ -1307,7 +1315,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                             ? Icons.check_circle_rounded
                                             : status == 'CANCELLED'
                                                 ? Icons.cancel_rounded
-                                                : Icons.local_shipping_rounded,
+                                                : isShipping
+                                                    ? Icons.local_shipping_outlined
+                                                    : Icons.directions_car_outlined,
                                         color: statusColor,
                                         size: 24,
                                       ),
@@ -1377,35 +1387,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                 // Timeline Progress Steps
                                 _buildTimeline(status),
 
-                                if (_hasAcceptedPartner(status) &&
-                                    status != 'COMPLETED' &&
+                                // Soft status strip (calm — no flashy car animation)
+                                if (status != 'COMPLETED' &&
                                     status != 'CANCELLED') ...[
                                   const SizedBox(height: 14),
-                                  ZoonDeliveryVehicleAnimation(
-                                    height: 85,
-                                    statusLabel: isShipping
-                                        ? 'الشحنة في طريقها إليك'
-                                        : 'الكابتن متوجه إليك الآن',
-                                    subtitle: 'تتبع حركة المركبة مباشرة على الخريطة',
-                                  ),
-                                ] else if (status != 'COMPLETED' &&
-                                    status != 'CANCELLED') ...[
-                                  const SizedBox(height: 14),
-                                  ZoonLuxuryVehicleVisualizer(
-                                    vehicleType: isShipping
-                                        ? ZoonVehicleType.halfTruck
-                                        : ZoonVehicleType.limousine,
-                                    height: 120,
-                                    title: isShipping
-                                        ? 'أسطول النقل والشحن في حالة ترقب'
-                                        : 'رادار كباتن زوون VIP نشط',
-                                    subtitle: 'جاري البحث عن كابتن متاح في منطقتك 📡',
-                                    primaryColor: isShipping
-                                        ? const Color(0xff06B6D4)
-                                        : const Color(0xffF97316),
-                                    underglowColor: isShipping
-                                        ? const Color(0xff06B6D4)
-                                        : const Color(0xffF97316),
+                                  _buildCalmStatusStrip(
+                                    isShipping: isShipping,
+                                    hasPartner: _hasAcceptedPartner(status),
                                   ),
                                 ],
 
@@ -1593,19 +1581,51 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildDriverVehicleMarker(bool isShipping) {
-    final driver = _order?['driver'] as Map?;
-    final driverName = driver?['name']?.toString() ??
-        _order?['driverName']?.toString() ??
-        'الكابتن';
+    final theme =
+        isShipping ? const Color(0xff06B6D4) : const Color(0xff22C55E);
 
-    return AnimatedGlidingVehicleMarker(
-      driverName: driverName,
-      isShipping: isShipping,
-      heading: _calculateDriverHeading(),
-      themeColor: const Color(0xff22C55E),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: theme,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: [
+              BoxShadow(
+                color: theme.withOpacity(0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Icon(
+            isShipping
+                ? Icons.local_shipping_rounded
+                : Icons.directions_car_filled_rounded,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+        Container(width: 2, height: 6, color: theme.withOpacity(0.7)),
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: theme,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 1.5),
+          ),
+        ),
+      ],
     );
   }
 
+  // Kept for possible future heading-aware markers.
+  // ignore: unused_element
   double _calculateDriverHeading() {
     final rawHeading =
         (_order?['driver']?['heading'] ?? _order?['driverHeading']);
@@ -1619,6 +1639,78 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       return (rad * 180 / math.pi) % 360;
     }
     return 0.0;
+  }
+
+  Widget _buildCalmStatusStrip({
+    required bool isShipping,
+    required bool hasPartner,
+  }) {
+    final isMoto = (_order?['vehicleType']?.toString().toLowerCase() ==
+            'motorcycle') ||
+        (_order?['vehicleCategory']?.toString().toLowerCase() == 'motorcycle');
+    final accent =
+        isShipping ? const Color(0xff06B6D4) : const Color(0xffF97316);
+    final icon = isShipping
+        ? Icons.local_shipping_outlined
+        : isMoto
+            ? Icons.two_wheeler_rounded
+            : Icons.directions_car_outlined;
+    final title = hasPartner
+        ? (isShipping ? 'الشحنة في الطريق' : 'الكابتن في الطريق إليك')
+        : (isShipping
+            ? 'بانتظار عروض الشحن'
+            : isMoto
+                ? 'بانتظار كابتن موتوسيكل'
+                : 'بانتظار عروض الكباتن');
+    final subtitle = hasPartner
+        ? 'تابع الحركة على الخريطة'
+        : 'هتظهر العروض هنا أول ما توصل';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xff121620),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xff252E3E)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: accent.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: accent, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Color(0xff94A3B8),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildTimeline(String? status) {
