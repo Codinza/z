@@ -107,6 +107,7 @@ model Trip {
   fareEstimate    Float
   finalFare       Float?
   distanceKm      Float?
+  vehicleType     String   @default("car") // car | motorcycle
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
