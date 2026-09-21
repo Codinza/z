@@ -61,6 +61,60 @@ class _DriversManagementTabState extends State<DriversManagementTab> {
     }
   }
 
+  Future<void> _confirmDeleteDriver(Map<String, dynamic> driver) async {
+    final name = driver['name']?.toString() ?? 'سائق';
+    final phone = driver['phone']?.toString() ?? '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff121620),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'حذف السائق نهائيًا؟',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'هيتشال "$name"${phone.isNotEmpty ? ' ($phone)' : ''} من التطبيق خالص، ومش هيقدر يدخل تاني.\n\nالعملية لا يمكن التراجع عنها.',
+          style: TextStyle(color: Colors.white.withOpacity(0.7), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('إلغاء',
+                style: TextStyle(color: Colors.white.withOpacity(0.6))),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xffEF4444)),
+            child: const Text('حذف نهائي'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final driverId = driver['id']?.toString();
+    if (driverId == null || driverId.isEmpty) return;
+
+    final result = await AdminService.deleteDriver(driverId);
+    if (!mounted) return;
+    final ok = result['success'] == true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? (result['message']?.toString() ?? 'تم حذف السائق')
+              : (result['error']?.toString() ?? 'فشل الحذف'),
+        ),
+        backgroundColor: ok ? const Color(0xff22C55E) : const Color(0xffEF4444),
+      ),
+    );
+    if (ok) {
+      _loadDrivers();
+      widget.onDataChanged?.call();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -623,6 +677,25 @@ class _DriversManagementTabState extends State<DriversManagementTab> {
                   ],
                 ],
               ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _confirmDeleteDriver(driver),
+                icon: const Icon(Icons.delete_forever_rounded, size: 16),
+                label: const Text(
+                  'حذف السائق نهائيًا من التطبيق',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xffEF4444)),
+                  foregroundColor: const Color(0xffEF4444),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
             ),
           ],
         ),

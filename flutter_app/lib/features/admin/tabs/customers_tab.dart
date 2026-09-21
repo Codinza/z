@@ -58,6 +58,57 @@ class _CustomersTabState extends State<CustomersTab> {
     }
   }
 
+  Future<void> _confirmDeleteCustomer(Map<String, dynamic> customer) async {
+    final name = customer['name']?.toString() ?? 'عميل';
+    final phone = customer['phone']?.toString() ?? '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff121620),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'حذف العميل نهائيًا؟',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'هيتشال "$name"${phone.isNotEmpty ? ' ($phone)' : ''} من التطبيق خالص، ومش هيقدر يدخل تاني.\n\nالعملية لا يمكن التراجع عنها.',
+          style: TextStyle(color: Colors.white.withOpacity(0.7), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('إلغاء',
+                style: TextStyle(color: Colors.white.withOpacity(0.6))),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xffEF4444)),
+            child: const Text('حذف نهائي'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final customerId = customer['id']?.toString();
+    if (customerId == null || customerId.isEmpty) return;
+
+    final result = await AdminService.deleteCustomer(customerId);
+    if (!mounted) return;
+    final ok = result['success'] == true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? (result['message']?.toString() ?? 'تم حذف العميل')
+              : (result['error']?.toString() ?? 'فشل الحذف'),
+        ),
+        backgroundColor: ok ? const Color(0xff22C55E) : const Color(0xffEF4444),
+      ),
+    );
+    if (ok) _loadCustomers();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -261,7 +312,18 @@ class _CustomersTabState extends State<CustomersTab> {
                     padding: const EdgeInsets.all(8),
                   ),
                 ),
+                const SizedBox(width: 6),
               ],
+              IconButton(
+                onPressed: () => _confirmDeleteCustomer(customer),
+                icon: const Icon(Icons.delete_forever_rounded,
+                    color: Color(0xffEF4444), size: 18),
+                tooltip: 'حذف العميل نهائيًا',
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xffEF4444).withOpacity(0.15),
+                  padding: const EdgeInsets.all(8),
+                ),
+              ),
             ],
           ),
 

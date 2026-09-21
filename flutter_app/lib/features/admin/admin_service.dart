@@ -126,6 +126,27 @@ class AdminService {
     }
   }
 
+  /// Permanently delete a driver (+ login) from the app
+  static Future<Map<String, dynamic>> deleteDriver(String driverId) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.delete('/api/admin/drivers/$driverId');
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': response.data['message'] ?? 'تم الحذف'};
+      }
+      return {'success': false, 'error': 'فشل حذف السائق'};
+    } catch (e) {
+      debugPrint('AdminService.deleteDriver error: $e');
+      if (e is DioException && e.response?.data is Map) {
+        return {
+          'success': false,
+          'error': (e.response!.data['error'] ?? 'فشل حذف السائق').toString(),
+        };
+      }
+      return {'success': false, 'error': 'فشل حذف السائق'};
+    }
+  }
+
   // ===================== COMPANIES =====================
 
   static Future<List<Map<String, dynamic>>> getAllCompanies({
@@ -272,6 +293,27 @@ class AdminService {
     } catch (e) {
       debugPrint('AdminService.getAllCustomers error: $e');
       return [];
+    }
+  }
+
+  /// Permanently delete a customer account from the app
+  static Future<Map<String, dynamic>> deleteCustomer(String customerId) async {
+    try {
+      final dio = await AuthService.getAuthenticatedDio();
+      final response = await dio.delete('/api/admin/customers/$customerId');
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': response.data['message'] ?? 'تم الحذف'};
+      }
+      return {'success': false, 'error': 'فشل حذف العميل'};
+    } catch (e) {
+      debugPrint('AdminService.deleteCustomer error: $e');
+      if (e is DioException && e.response?.data is Map) {
+        return {
+          'success': false,
+          'error': (e.response!.data['error'] ?? 'فشل حذف العميل').toString(),
+        };
+      }
+      return {'success': false, 'error': 'فشل حذف العميل'};
     }
   }
 

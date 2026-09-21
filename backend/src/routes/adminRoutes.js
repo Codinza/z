@@ -7,14 +7,18 @@ import {
   approveDriver,
   rejectDriver,
   createApprovedDriver,
+  deleteDriver,
   getStats,
   getAllOrders,
   adminAcceptOrder,
   adminRejectOrder,
   adminSendCounterOffer,
+  adminStartDelivery,
+  adminCompleteOrder,
   getTopUpRequests,
   reviewTopUpRequest,
   getAllCustomers,
+  deleteCustomer,
   getFinancesSummary,
   getSupportTickets,
   updateSupportTicket,
@@ -39,6 +43,7 @@ export const adminRoutes = () => {
   router.post('/drivers/:id/wallet', adjustDriverWallet);
   router.post('/drivers/:id/approve', approveDriver);
   router.post('/drivers/:id/reject', rejectDriver);
+  router.delete('/drivers/:id', deleteDriver);
 
   // Companies Management
   router.get('/companies', getAllCompanies);
@@ -52,6 +57,7 @@ export const adminRoutes = () => {
 
   // Customers Directory
   router.get('/customers', getAllCustomers);
+  router.delete('/customers/:id', deleteCustomer);
 
   // Support & Helpdesk
   router.get('/support', getSupportTickets);
@@ -62,6 +68,8 @@ export const adminRoutes = () => {
   router.post('/orders/:orderId/accept', adminAcceptOrder);
   router.post('/orders/:orderId/reject', adminRejectOrder);
   router.post('/orders/:orderId/offer', adminSendCounterOffer);
+  router.post('/orders/:orderId/start-delivery', adminStartDelivery);
+  router.post('/orders/:orderId/complete', adminCompleteOrder);
 
   return router;
 };

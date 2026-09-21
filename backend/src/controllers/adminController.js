@@ -24,26 +24,56 @@ export const getTopUpRequests = async (req, res) => {
 
 export const reviewTopUpRequest = async (req, res) => {
   try {
-    const request = await prisma.driverTopUpRequest.findUnique({ where: { id: req.params.id } });
+    const request = await prisma.driverTopUpRequest.findUnique({
+      where: { id: req.params.id },
+      include: { driver: { select: { id: true, userId: true, walletBalance: true } } },
+    });
     if (!request || request.status !== 'pending') {
       return res.status(404).json({ error: 'Pending request not found' });
     }
 
-    const approve = req.body.approve === true;
+    const approve = req.body.approve === true || req.body.approve === 'true';
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.driverTopUpRequest.update({
         where: { id: request.id },
-        data: { status: approve ? 'approved' : 'rejected', adminNote: req.body.adminNote || null },
+        data: {
+          status: approve ? 'approved' : 'rejected',
+          adminNote: req.body.adminNote || null,
+        },
       });
+      let newBalance = request.driver?.walletBalance ?? 0;
       if (approve) {
-        await tx.driver.update({
+        const driver = await tx.driver.update({
           where: { id: request.driverId },
           data: { walletBalance: { increment: request.amount } },
         });
+        newBalance = driver.walletBalance;
       }
-      return updated;
+      return { updated, newBalance };
     });
-    res.json({ request: result });
+
+    if (request.driver?.userId) {
+      await prisma.notification.create({
+        data: {
+          userId: request.driver.userId,
+          title: approve ? 'تم قبول التحويل 💰' : 'تم رفض التحويل',
+          body: approve
+            ? `تمت إضافة ${request.amount} ج.م إلى محفظتك. الرصيد الحالي: ${result.newBalance} ج.م`
+            : (req.body.adminNote
+              ? `تم رفض طلب الشحن: ${req.body.adminNote}`
+              : 'تم رفض طلب شحن المحفظة من الإدارة'),
+          type: approve ? 'wallet_topup_approved' : 'wallet_topup_rejected',
+        },
+      });
+    }
+
+    res.json({
+      request: result.updated,
+      newBalance: result.newBalance,
+      message: approve
+        ? 'تم قبول التحويل وإضافة الرصيد لمحفظة السائق'
+        : 'تم رفض طلب التحويل',
+    });
   } catch (error) {
     logger.error('Failed to review top-up request', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to review top-up request' });
@@ -376,7 +406,10 @@ export const getAllCustomers = async (req, res) => {
   try {
     const { search } = req.query;
     const customers = await prisma.user.findMany({
-      where: { role: 'customer' },
+      where: {
+        role: 'customer',
+        NOT: { phone: { startsWith: 'deleted_' } },
+      },
       include: {
         trips: {
           select: { id: true, status: true, finalFare: true, fareEstimate: true },
@@ -597,33 +630,16 @@ export const adminAcceptOrder = async (req, res) => {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    const updatedOrder = await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: 'CONFIRMED',
-        finalPrice: order.customerOfferPrice,
-        customerContactVisible: true,
-      },
-      include: { customer: true },
-    });
+    // Never auto-confirm. Matching customer price still requires customer approval.
+    const customerPrice = Number(order.customerOfferPrice);
+    if (!customerPrice || customerPrice <= 0) {
+      return res.status(400).json({
+        error: 'لا يوجد سعر عميل صالح. أرسل عرض سعر يدويًا.',
+      });
+    }
 
-    await prisma.notification.create({
-      data: {
-        userId: updatedOrder.customerId,
-        title: 'Order Accepted (Admin)',
-        body: `Your order has been accepted at ${updatedOrder.finalPrice || 0} EGP`,
-        type: 'order_accepted',
-        orderId: orderId,
-      },
-    });
-
-    emitOrderStatusChanged({
-      orderId,
-      status: 'CONFIRMED',
-      price: updatedOrder.finalPrice,
-    });
-
-    res.json({ message: 'Order accepted and confirmed', order: updatedOrder });
+    req.body = { ...(req.body || {}), offeredPrice: customerPrice };
+    return adminSendCounterOffer(req, res);
   } catch (error) {
     logger.error('Failed to accept order', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to accept order' });
@@ -745,5 +761,174 @@ export const adminSendCounterOffer = async (req, res) => {
   } catch (error) {
     logger.error('Failed to send counter offer', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to send counter offer' });
+  }
+};
+
+export const adminStartDelivery = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    if (!['CONFIRMED', 'CUSTOMER_APPROVED', 'COMPANY_ACCEPTED'].includes(order.status)) {
+      return res.status(400).json({
+        error: 'الطلب يجب أن يكون مؤكدًا قبل بدء التوصيل',
+      });
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'IN_PROGRESS',
+        customerContactVisible: true,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: order.customerId,
+        title: 'الشحنة في الطريق',
+        body: 'بدأت الشركة توصيل شحنتك. يمكنك متابعة الحالة الآن.',
+        type: 'order_in_progress',
+        orderId,
+      },
+    });
+
+    emitOrderStatusChanged({ orderId, status: 'IN_PROGRESS' });
+    res.json({ message: 'Delivery started', order: updatedOrder });
+  } catch (error) {
+    logger.error('Failed to start delivery', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to start delivery' });
+  }
+};
+
+export const adminCompleteOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    if (!['IN_PROGRESS', 'OUT_FOR_DELIVERY', 'CONFIRMED'].includes(order.status)) {
+      return res.status(400).json({
+        error: 'الطلب يجب أن يكون قيد التوصيل قبل الإكمال',
+      });
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: { status: 'COMPLETED' },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: order.customerId,
+        title: 'تم تسليم الشحنة',
+        body: 'تم إكمال طلب الشحن بنجاح.',
+        type: 'order_completed',
+        orderId,
+      },
+    });
+
+    emitOrderStatusChanged({ orderId, status: 'COMPLETED' });
+    res.json({ message: 'Delivery completed', order: updatedOrder });
+  } catch (error) {
+    logger.error('Failed to complete delivery', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to complete delivery' });
+  }
+};
+
+/** Remove customer-owned rows so the User row can be hard-deleted. */
+async function purgeCustomerOwnedData(tx, userId) {
+  await tx.notification.deleteMany({ where: { userId } });
+  await tx.priceOffer.deleteMany({ where: { customerId: userId } });
+  await tx.rating.deleteMany({ where: { userId } });
+  await tx.payment.deleteMany({ where: { userId } });
+  await tx.supportTicket.deleteMany({ where: { userId } });
+
+  const orders = await tx.order.findMany({
+    where: { customerId: userId },
+    select: { id: true },
+  });
+  const orderIds = orders.map((o) => o.id);
+  if (orderIds.length) {
+    await tx.priceOffer.deleteMany({ where: { orderId: { in: orderIds } } });
+    await tx.payment.deleteMany({ where: { orderId: { in: orderIds } } });
+    await tx.rating.deleteMany({ where: { orderId: { in: orderIds } } });
+    await tx.order.deleteMany({ where: { id: { in: orderIds } } });
+  }
+
+  const trips = await tx.trip.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+  const tripIds = trips.map((t) => t.id);
+  if (tripIds.length) {
+    await tx.payment.deleteMany({ where: { tripId: { in: tripIds } } });
+    await tx.rating.deleteMany({ where: { tripId: { in: tripIds } } });
+    await tx.trip.deleteMany({ where: { id: { in: tripIds } } });
+  }
+}
+
+/** Admin: permanently delete a customer account and related data. */
+export const deleteCustomer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user || user.role !== 'customer') {
+      return res.status(404).json({ error: 'العميل غير موجود' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await purgeCustomerOwnedData(tx, id);
+      await tx.otpCode.deleteMany({ where: { phone: user.phone } });
+      await tx.user.delete({ where: { id } });
+    });
+
+    logger.info('Customer deleted by admin', { customerId: id, by: req.user?.id });
+    res.json({ success: true, message: 'تم حذف العميل نهائيًا من التطبيق' });
+  } catch (error) {
+    logger.error('Failed to delete customer', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'فشل حذف العميل' });
+  }
+};
+
+/** Admin: permanently delete a driver account (+ linked user) from the app. */
+export const deleteDriver = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const driver = await prisma.driver.findFirst({
+      where: { OR: [{ id }, { userId: id }] },
+      include: { user: true },
+    });
+    if (!driver) {
+      return res.status(404).json({ error: 'السائق غير موجود' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Keep trip history for customers; detach this driver.
+      await tx.trip.updateMany({
+        where: { driverId: driver.id },
+        data: { driverId: null },
+      });
+      await tx.driverLocation.deleteMany({ where: { driverId: driver.id } });
+      await tx.rating.deleteMany({ where: { driverId: driver.id } });
+      await tx.driverTopUpRequest.deleteMany({ where: { driverId: driver.id } });
+      await tx.car.deleteMany({ where: { driverId: driver.id } });
+      await tx.driver.delete({ where: { id: driver.id } });
+
+      if (driver.userId) {
+        await purgeCustomerOwnedData(tx, driver.userId);
+        if (driver.user?.phone) {
+          await tx.otpCode.deleteMany({ where: { phone: driver.user.phone } });
+        }
+        await tx.user.delete({ where: { id: driver.userId } });
+      }
+    });
+
+    logger.info('Driver deleted by admin', { driverId: driver.id, by: req.user?.id });
+    res.json({ success: true, message: 'تم حذف السائق نهائيًا من التطبيق' });
+  } catch (error) {
+    logger.error('Failed to delete driver', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'فشل حذف السائق' });
   }
 };
