@@ -1,0 +1,17 @@
+# Optional: run API locally/on Oracle VPS with Docker
+# DB stays on Supabase (set DATABASE_URL + DIRECT_URL in .env)
+
+services:
+  api:
+    build: .
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 40s

@@ -1,0 +1,13 @@
+{
+  "name": "zoon",
+  "private": true,
+  "description": "Monorepo root — Railway builds the API from /backend",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "npm install --prefix backend && npm run build --prefix backend",
+    "start": "npm run prisma:push --prefix backend && npm start --prefix backend",
+    "postinstall": "npm install --prefix backend"
+  }
+}

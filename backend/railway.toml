@@ -1,0 +1,12 @@
+# Railway: deploy the backend folder as a Docker service.
+# Do NOT enable Serverless — the API must stay awake for Google Play.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

@@ -1,0 +1,9 @@
+node_modules
+backend/node_modules
+admin-dashboard/node_modules
+flutter_app
+.git
+.env
+**/.env
+**/build
+**/.dart_tool

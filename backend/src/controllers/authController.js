@@ -441,3 +441,72 @@ export const changePassword = async (req, res) => {
     res.status(500).json({ error: 'حدث خطأ أثناء تغيير كلمة المرور' });
   }
 };
+
+/**
+ * Google Play account-deletion requirement:
+ * anonymize PII, free the phone number for re-registration, suspend driver/company links.
+ */
+export const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { driver: true, company: true },
+    });
+    if (!user) {
+      return res.status(404).json({ error: 'المستخدم غير موجود' });
+    }
+    if (user.phone?.startsWith('deleted_')) {
+      return res.json({ success: true, message: 'الحساب محذوف بالفعل' });
+    }
+
+    const randomPassword = await bcrypt.hash(`deleted-${userId}-${Date.now()}`, 10);
+    const tombstonePhone = `deleted_${Date.now()}_${userId.slice(-8)}`;
+
+    await prisma.$transaction(async (tx) => {
+      if (user.driver) {
+        await tx.driver.update({
+          where: { id: user.driver.id },
+          data: {
+            status: 'rejected',
+            licensePhotoUrl: null,
+            carPhotoUrl: null,
+            walletBalance: 0,
+          },
+        });
+      }
+      if (user.company) {
+        await tx.company.update({
+          where: { id: user.company.id },
+          data: { status: 'rejected' },
+        });
+      }
+      await tx.notification.deleteMany({ where: { userId } });
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          name: 'حساب محذوف',
+          phone: tombstonePhone,
+          email: null,
+          profileImage: null,
+          password: randomPassword,
+          phoneVerified: false,
+          walletBalance: 0,
+        },
+      });
+    });
+
+    logger.info('Account deleted', { userId });
+    res.json({
+      success: true,
+      message: 'تم حذف حسابك والبيانات الشخصية المرتبطة به',
+    });
+  } catch (error) {
+    logger.error('Account deletion failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'فشل حذف الحساب. حاول مرة أخرى أو تواصل مع الدعم.' });
+  }
+};

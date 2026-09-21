@@ -8,6 +8,7 @@ import {
   changePassword,
   verifyPhone,
   resendVerificationCode,
+  deleteAccount,
 } from '../controllers/authController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { otpSendLimiter, otpVerifyLimiter } from '../middlewares/rateLimiter.js';
@@ -23,5 +24,6 @@ export const authRoutes = () => {
   router.post('/refresh', refreshToken);
   router.get('/profile', authMiddleware, getProfile);
   router.post('/change-password', authMiddleware, changePassword);
+  router.post('/delete-account', authMiddleware, deleteAccount);
   return router;
 };
