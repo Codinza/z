@@ -19,4 +19,4 @@ ENV NODE_ENV=production
 ENV PORT=4000
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma db push && node src/app.js"]
+CMD ["sh", "-c", "export DIRECT_URL=\"${DIRECT_URL:-$DATABASE_URL}\" && npx prisma db push && node src/app.js"]
