@@ -40,9 +40,10 @@ export const requireSelfDriver = async (req, res, next) => {
       return next();
     }
 
-    const targetId = req.params.id;
-    if (!targetId) {
-      return res.status(400).json({ error: 'Driver id is required' });
+    let targetId = req.params.id;
+    if (!targetId || targetId === 'me') {
+      targetId = req.user.id;
+      req.params.id = targetId;
     }
 
     // Flutter commonly passes the authenticated user id as the driver path id.

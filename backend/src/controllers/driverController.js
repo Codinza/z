@@ -29,15 +29,20 @@ class DriverController {
 
   async createTopUpRequest(req, res) {
     try {
+      let id = req.params.id;
+      if (!id || id === 'me') {
+        id = req.user?.id;
+      }
       const result = await driverService.createTopUpRequest(
-        req.params.id,
+        id,
         req.body.amount,
         req.body.paymentMethod,
         req.body.receiptImage,
+        req.user?.id,
       );
       return res.status(201).json(result);
     } catch (e) {
-      return res.status(400).json({ message: e.message });
+      return res.status(400).json({ message: e.message, error: e.message });
     }
   }
 

@@ -14,19 +14,23 @@ class DriverService {
   }
 
   async getDriverWallet(id) {
-    let driver = await driverRepository.getDriverById(id);
-    if (!driver && id === 'driver_dummy_001') {
-      driver = { id: 'driver_dummy_001', walletBalance: 0 };
+    const driver = await driverRepository.getDriverById(id);
+    if (!driver) {
+      return { walletBalance: 0, todayEarnings: 0, todayTrips: 0 };
     }
-    
+
+    const resolvedId = driver.id;
     let completedTrips = [];
     try {
-      completedTrips = await tripRepository.listTripsByDriver(id);
+      completedTrips = await tripRepository.listTripsByDriver(resolvedId);
     } catch (_) {}
 
     const memoryTrips = (await import('./tripService.js')).rides;
     for (const trip of memoryTrips.values()) {
-      if (trip.driverId === id && trip.status === 'completed') {
+      if (
+        (trip.driverId === id || trip.driverId === resolvedId) &&
+        trip.status === 'completed'
+      ) {
         completedTrips.push(trip);
       }
     }
@@ -41,7 +45,7 @@ class DriverService {
     });
 
     return {
-      walletBalance: driver?.walletBalance ?? 0,
+      walletBalance: driver.walletBalance ?? 0,
       todayEarnings: todayTrips.reduce(
         (total, trip) => total + (trip.finalFare ?? trip.fareEstimate ?? 0),
         0,
@@ -63,22 +67,57 @@ class DriverService {
     }
   }
 
-  async createTopUpRequest(id, amount, paymentMethod, receiptImage) {
+  async createTopUpRequest(id, amount, paymentMethod, receiptImage, authUserId) {
     const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) throw new Error('Invalid amount');
-    if (!['instapay', 'vodafone_cash'].includes(paymentMethod)) throw new Error('Invalid payment method');
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      throw new Error('أدخل مبلغ صحيح');
+    }
+    if (!['instapay', 'vodafone_cash'].includes(paymentMethod)) {
+      throw new Error('طريقة التحويل غير صحيحة');
+    }
     if (typeof receiptImage !== 'string' || !receiptImage.startsWith('data:image/')) {
-      throw new Error('Receipt image is required');
+      throw new Error('صورة الإيصال مطلوبة');
     }
 
-    const driver = await prisma.driver.findFirst({
-      where: { OR: [{ id }, { userId: id }] },
+    const ids = [...new Set([id, authUserId].filter(Boolean))];
+    let driver = await prisma.driver.findFirst({
+      where: {
+        OR: ids.flatMap((value) => [{ id: value }, { userId: value }]),
+      },
       select: { id: true },
     });
-    if (!driver) throw new Error('Driver not found');
+
+    // Driver account exists as User(role=driver) but missing Driver row — heal it.
+    if (!driver && authUserId) {
+      const user = await prisma.user.findUnique({
+        where: { id: authUserId },
+        select: { id: true, role: true },
+      });
+      if (user?.role === 'driver') {
+        driver = await prisma.driver.upsert({
+          where: { userId: authUserId },
+          update: {},
+          create: {
+            userId: authUserId,
+            status: 'approved',
+            vehicleCategory: 'car',
+          },
+          select: { id: true },
+        });
+      }
+    }
+
+    if (!driver) {
+      throw new Error('حساب السائق غير موجود. سجّل الخروج وادخل مرة أخرى.');
+    }
 
     return prisma.driverTopUpRequest.create({
-      data: { driverId: driver.id, amount: parsedAmount, paymentMethod, receiptImage },
+      data: {
+        driverId: driver.id,
+        amount: parsedAmount,
+        paymentMethod,
+        receiptImage,
+      },
     });
   }
 

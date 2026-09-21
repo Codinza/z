@@ -32,8 +32,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       if (_driverId == null || _driverId!.isEmpty) {
         throw Exception('Driver session not found');
       }
-      final response =
-          await ApiClient().dio.get('/api/drivers/$_driverId/wallet');
+      final response = await ApiClient().dio.get('/api/drivers/me/wallet');
       if (response.statusCode == 200) {
         if (mounted) {
           setState(() {
@@ -189,7 +188,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       final response = await ApiClient().dio.post(
-        '/api/drivers/$_driverId/wallet/top-up-request',
+        '/api/drivers/me/wallet/top-up-request',
         data: {
           'amount': amount,
           'paymentMethod': paymentMethod,
