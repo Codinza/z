@@ -37,7 +37,7 @@ android {
         minSdk = flutter.minSdkVersion
         targetSdk = 36
         // Explicit Play version — keep in sync with pubspec.yaml (1.2.4+31)
-        versionCode = 32
+        versionCode = 33
         versionName = "1.2.5"
     }
 
