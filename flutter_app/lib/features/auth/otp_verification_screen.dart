@@ -48,6 +48,7 @@ class OtpVerificationScreen extends StatefulWidget {
     this.initialDevCode,
     this.initialResendAfterSeconds = 60,
     this.autoRequestCode = false,
+    this.channel = 'whatsapp',
   });
 
   final String phone;
@@ -56,6 +57,8 @@ class OtpVerificationScreen extends StatefulWidget {
   final String? initialDevCode;
   final int initialResendAfterSeconds;
   final bool autoRequestCode;
+  /// Delivery channel: whatsapp | console | sms
+  final String channel;
 
   @override
   State<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
@@ -275,7 +278,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               ),
                               const SizedBox(height: 10),
                               Text(
-                                'أدخل الكود المرسل إلى\n$_displayPhone',
+                                widget.channel == 'whatsapp'
+                                    ? 'أدخل الكود المرسل على واتساب إلى\n$_displayPhone'
+                                    : 'أدخل الكود المرسل إلى\n$_displayPhone',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(.82),

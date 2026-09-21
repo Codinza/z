@@ -150,10 +150,14 @@ export const register = async (req, res) => {
 
     // No tokens yet: the account stays locked until the code is confirmed.
     res.status(201).json({
-      message: 'تم إنشاء الحساب. أدخل كود التأكيد المرسل إلى رقمك.',
+      message:
+        otp.channel === 'whatsapp'
+          ? 'تم إنشاء الحساب. أدخل كود التأكيد المرسل على واتساب.'
+          : 'تم إنشاء الحساب. أدخل كود التأكيد المرسل إلى رقمك.',
       requiresVerification: true,
       phone: normalizedPhone,
       maskedPhone: maskPhone(normalizedPhone),
+      channel: otp.channel,
       expiresAt: otp.expiresAt,
       resendAfterSeconds: otp.resendAfterSeconds,
       ...(otp.devCode ? { devCode: otp.devCode } : {}),
@@ -251,6 +255,11 @@ export const resendVerificationCode = async (req, res) => {
     const otp = await issueOtp({ phone: normalizedPhone, purpose: 'REGISTRATION' });
     res.json({
       ...genericResponse,
+      message:
+        otp.channel === 'whatsapp'
+          ? 'إذا كان الرقم مسجلاً وغير مؤكد، سيتم إرسال كود جديد على واتساب.'
+          : genericResponse.message,
+      channel: otp.channel,
       expiresAt: otp.expiresAt,
       resendAfterSeconds: otp.resendAfterSeconds,
       ...(otp.devCode ? { devCode: otp.devCode } : {}),

@@ -82,6 +82,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             initialDevCode: result['devCode']?.toString(),
             initialResendAfterSeconds:
                 (result['resendAfterSeconds'] as num?)?.toInt() ?? 60,
+            channel: result['channel']?.toString() ?? 'whatsapp',
           ),
         ),
       );

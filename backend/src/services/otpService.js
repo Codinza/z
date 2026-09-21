@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
-import { sendSms, isDevSmsProvider } from './smsService.js';
+import { sendSms, isDevSmsProvider, getDeliveryChannel } from './smsService.js';
 import { normalizePhone, maskPhone } from '../utils/phone.js';
 import logger from '../utils/logger.js';
 
@@ -66,23 +66,27 @@ export async function issueOtp({ phone, purpose = 'REGISTRATION' }) {
   ]);
 
   try {
-    await sendSms(normalized, buildMessage(code));
+    await sendSms(normalized, buildMessage(code), { code });
   } catch (error) {
     // Do not leave an undeliverable code behind; let the caller retry cleanly.
     await prisma.otpCode.delete({ where: { id: created.id } }).catch(() => {});
     throw error;
   }
 
+  const channel = getDeliveryChannel();
+
   logger.info('OTP issued', {
     phone: maskPhone(normalized),
     purpose,
+    channel,
     expiresAt: expiresAt.toISOString(),
   });
 
   return {
     expiresAt,
     resendAfterSeconds: env.otpResendCooldownSeconds,
-    // Local convenience only, so the app flow is testable without a gateway.
+    channel,
+    // Local convenience only — never return codes over the API in production.
     devCode: isDevSmsProvider() && env.nodeEnv !== 'production' ? code : undefined,
   };
 }

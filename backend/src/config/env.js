@@ -47,4 +47,14 @@ export const env = {
   otpExpiryMinutes: Number(process.env.OTP_EXPIRY_MINUTES || 10),
   otpMaxAttempts: Number(process.env.OTP_MAX_ATTEMPTS || 5),
   otpResendCooldownSeconds: Number(process.env.OTP_RESEND_COOLDOWN_SECONDS || 60),
+  whatsappToken: process.env.WHATSAPP_TOKEN || '',
+  whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+  whatsappOtpTemplate: process.env.WHATSAPP_OTP_TEMPLATE || 'zoon_otp',
+  whatsappOtpLanguage: process.env.WHATSAPP_OTP_LANGUAGE || 'ar',
+  // Set to "" to skip button component if your template is body-only.
+  whatsappOtpButtonIndex:
+    process.env.WHATSAPP_OTP_BUTTON_INDEX === undefined
+      ? '0'
+      : String(process.env.WHATSAPP_OTP_BUTTON_INDEX).trim(),
+  whatsappGraphVersion: process.env.WHATSAPP_GRAPH_VERSION || 'v21.0',
 };

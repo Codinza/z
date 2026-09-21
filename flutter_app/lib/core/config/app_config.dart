@@ -1,11 +1,16 @@
 
 class AppConfig {
-  static const String _productionBackendUrl = 'https://zoon-api.onrender.com';
+  static const String _productionBackendUrl = 'https://z-production-acea.up.railway.app';
 
   // Keep the local URL only as an override for debugging
   static const String _localBackendUrl = 'http://192.168.100.6:4000';
 
   static String get localBackendUrl => _localBackendUrl;
+
+  /// Public legal pages required by Google Play (must stay reachable over HTTPS).
+  static String get privacyPolicyUrl => '$backendBaseUrl/privacy-policy';
+  static String get accountDeletionUrl => '$backendBaseUrl/account-deletion';
+  static String get termsUrl => '$backendBaseUrl/terms';
 
   static String get backendBaseUrl {
     const envUrl = String.fromEnvironment(

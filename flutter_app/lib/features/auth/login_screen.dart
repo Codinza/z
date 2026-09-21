@@ -47,8 +47,6 @@ class LoginScreen extends StatelessWidget {
               child: Column(
                 children: [
                   const Spacer(flex: 2),
-                  const Zoon3DMascot(height: 210),
-                  const SizedBox(height: 8),
                   TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0, end: 1),
                     duration: const Duration(milliseconds: 520),
@@ -196,6 +194,7 @@ class _LoginScreenState extends State<LoginFormScreen> {
             maskedPhone: result['maskedPhone']?.toString(),
             initialResendAfterSeconds: 0,
             autoRequestCode: true,
+            channel: result['channel']?.toString() ?? 'whatsapp',
           ),
         ),
       );
@@ -279,8 +278,6 @@ class _LoginScreenState extends State<LoginFormScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Zoon3DMascot(height: 150),
-                      const SizedBox(height: 10),
                       Container(
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
