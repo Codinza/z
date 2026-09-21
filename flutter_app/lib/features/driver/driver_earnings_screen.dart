@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/network/api_client.dart';
@@ -68,42 +69,84 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('طلب شحن المحفظة'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('حوّل المبلغ ثم ارفع صورة الإيصال للمراجعة.'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: amountController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'المبلغ بالجنيه'),
-              ),
-              DropdownButtonFormField<String>(
-                value: paymentMethod,
-                decoration: const InputDecoration(labelText: 'طريقة التحويل'),
-                items: const [
-                  DropdownMenuItem(value: 'instapay', child: Text('InstaPay')),
-                  DropdownMenuItem(
-                      value: 'vodafone_cash', child: Text('Vodafone Cash')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'حوّل المبلغ ثم ارفع سكرين الإيصال للمراجعة من الأدمن.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  decoration:
+                      const InputDecoration(labelText: 'المبلغ بالجنيه'),
+                ),
+                DropdownButtonFormField<String>(
+                  value: paymentMethod,
+                  decoration:
+                      const InputDecoration(labelText: 'طريقة التحويل'),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'instapay', child: Text('InstaPay')),
+                    DropdownMenuItem(
+                        value: 'vodafone_cash',
+                        child: Text('Vodafone Cash')),
+                  ],
+                  onChanged: (value) => setDialogState(
+                      () => paymentMethod = value ?? 'instapay'),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final selected = await ImagePicker()
+                              .pickImage(
+                                  source: ImageSource.gallery,
+                                  imageQuality: 55,
+                                  maxWidth: 1280);
+                          if (selected != null) {
+                            setDialogState(() => receipt = selected);
+                          }
+                        },
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: const Text('معرض'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final selected = await ImagePicker()
+                              .pickImage(
+                                  source: ImageSource.camera,
+                                  imageQuality: 55,
+                                  maxWidth: 1280);
+                          if (selected != null) {
+                            setDialogState(() => receipt = selected);
+                          }
+                        },
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: const Text('كاميرا'),
+                      ),
+                    ),
+                  ],
+                ),
+                if (receipt != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '✓ تم اختيار الإيصال',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
-                onChanged: (value) =>
-                    setDialogState(() => paymentMethod = value ?? 'instapay'),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final selected = await ImagePicker()
-                      .pickImage(source: ImageSource.gallery);
-                  if (selected != null) {
-                    setDialogState(() => receipt = selected);
-                  }
-                },
-                icon: const Icon(Icons.receipt_long),
-                label: Text(receipt == null
-                    ? 'اختيار صورة الإيصال'
-                    : 'تم اختيار الإيصال'),
-              ),
-            ],
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -127,25 +170,68 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
     try {
       final receiptBytes = await receipt!.readAsBytes();
+      // Keep payload small so Railway / proxies don't reject the request.
       final receiptImage =
           'data:image/jpeg;base64,${base64Encode(receiptBytes)}';
+      final amount = double.tryParse(amountController.text.trim());
+      if (amount == null || amount <= 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('أدخل مبلغ صحيح')),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
       final response = await ApiClient().dio.post(
         '/api/drivers/$_driverId/wallet/top-up-request',
         data: {
-          'amount': double.tryParse(amountController.text.trim()),
+          'amount': amount,
           'paymentMethod': paymentMethod,
           'receiptImage': receiptImage,
         },
+        options: Options(
+          sendTimeout: const Duration(seconds: 120),
+          receiveTimeout: const Duration(seconds: 120),
+        ),
       );
-      if (mounted && response.statusCode == 201) {
+      if (mounted) Navigator.pop(context); // loading
+      if (mounted && (response.statusCode == 201 || response.statusCode == 200)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم إرسال الإيصال للأدمن للمراجعة')),
+          const SnackBar(
+            content: Text(
+                'تم إرسال السكرين للأدمن — الرصيد هيتضاف بعد الموافقة'),
+            backgroundColor: Color(0xff22C55E),
+          ),
+        );
+        await _fetchWallet();
+      }
+    } on DioException catch (e) {
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+      final msg = e.response?.data is Map
+          ? (e.response!.data['message'] ??
+                  e.response!.data['error'] ??
+                  e.message)
+              ?.toString()
+          : e.message;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل إرسال الطلب: ${msg ?? e.type.name}'),
+            backgroundColor: const Color(0xffEF4444),
+          ),
         );
       }
     } catch (e) {
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('فشل الشحن')),
+          SnackBar(content: Text('فشل إرسال الطلب: $e')),
         );
       }
     } finally {

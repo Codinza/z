@@ -58,6 +58,10 @@ class TripService {
             : null);
         return {
           ...trip,
+          vehicleType:
+            String(trip.vehicleType || '').toLowerCase() === 'motorcycle'
+              ? 'motorcycle'
+              : 'car',
           userName: rawName,
           // Hide phone for pending trips (only visible once accepted)
           userPhone: isAccepted ? rawPhone : null,
@@ -273,11 +277,17 @@ class TripService {
       };
       try {
         const driverSockets = await io.in('drivers').fetchSockets();
+        let targeted = 0;
         for (const sock of driverSockets) {
           const category = sock.data?.vehicleCategory || 'car';
           if (category === ride.vehicleType) {
             sock.emit('trip_request', tripRequestPayload);
+            targeted += 1;
           }
+        }
+        // Fallback: if nobody got it (missing vehicleCategory on sockets), broadcast all.
+        if (targeted === 0 && driverSockets.length > 0) {
+          io.to('drivers').emit('trip_request', tripRequestPayload);
         }
       } catch (error) {
         logger.warn('Failed to target trip_request by vehicle category', {
@@ -285,6 +295,8 @@ class TripService {
         });
         io.to('drivers').emit('trip_request', tripRequestPayload);
       }
+      // Admins see every trip type (car + motorcycle) in the same format.
+      io.to('admins').emit('trip_request', tripRequestPayload);
     }
 
     try {
@@ -301,6 +313,7 @@ class TripService {
         fareEstimate: ride.fareEstimate,
         distanceKm: ride.distanceKm,
         finalFare: ride.finalFare,
+        vehicleType: ride.vehicleType,
       });
     } catch (error) {
       logger.warn('Trip persisted in memory only because Prisma storage is unavailable', { error: error.message });
@@ -378,7 +391,8 @@ class TripService {
       } catch (_) {}
     }
 
-    const acceptedDriverId = driverId || 'driver_dummy_001';
+    const acceptedDriverId = driverId;
+    if (!acceptedDriverId) throw new Error('Driver id is required');
 
     // Create assignment if it doesn't exist
     let assignment = assignments.get(rideId);
@@ -445,7 +459,8 @@ class TripService {
     if (ride.status !== 'pending') throw new Error('Only pending rides can be rejected');
 
     ride.status = 'cancelled';
-    ride.rejectedBy = driverId || 'driver_dummy_001';
+    ride.rejectedBy = driverId;
+    if (!ride.rejectedBy) throw new Error('Driver id is required');
     ride.updatedAt = new Date().toISOString();
 
     if (io) {
@@ -568,7 +583,7 @@ class TripService {
       assignment = {
         id: `assignment_${Date.now()}`,
         rideRequestId: rideId,
-        driverId: ride.driverId || 'driver_dummy_001',
+        driverId: ride.driverId || 'unknown',
         status: 'completed',
         completedAt: new Date().toISOString(),
       };
@@ -613,7 +628,7 @@ class TripService {
         io.to(`user_${ride.userId}`).emit('trip_status_changed', completionPayload);
       }
       if (ride.driverId) {
-        io.to(`driver_${ride.driverId}`).emit('trip_status_changed', completionPayload);
+        io.to(`driver:${ride.driverId}`).emit('trip_status_changed', completionPayload);
       }
     }
 
@@ -702,7 +717,7 @@ class TripService {
     // Realtime notification via Socket.IO
     try {
       if (io && ride.driverId) {
-        io.to(`driver_${ride.driverId}`).emit('new_rating_received', {
+        io.to(`driver:${ride.driverId}`).emit('new_rating_received', {
           tripId: ride.id,
           rating: ride.rating,
         });

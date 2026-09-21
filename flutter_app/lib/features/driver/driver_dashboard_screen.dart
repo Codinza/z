@@ -25,9 +25,14 @@ class DriverDashboardScreen extends StatefulWidget {
   State<DriverDashboardScreen> createState() => _DriverDashboardScreenState();
 }
 
-class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
+class _DriverDashboardScreenState extends State<DriverDashboardScreen>
+    with TickerProviderStateMixin {
   final bool _isOnline = true;
-  bool _isLoading = false;
+  /// Only blocks the list on the very first load when there is nothing to show.
+  bool _isInitialLoading = true;
+  bool _isRefreshing = false;
+  bool _isFetching = false;
+  String? _submittingTripId;
 
   // All relevant trips (pending, and active ones assigned to this driver)
   final List<Map<String, dynamic>> _incomingTrips = [];
@@ -40,10 +45,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   // Controllers for offers
   final Map<String, TextEditingController> _offerControllers = {};
 
-  String _driverId = 'driver_dummy_001';
+  String _driverId = '';
   String _vehicleCategory = 'car'; // car | motorcycle
+  bool _isAdminViewer = false;
+
+  late final AnimationController _pulseController;
+  late final AnimationController _headerController;
 
   bool _matchesDriverVehicle(Map<String, dynamic> trip) {
+    if (_isAdminViewer) return true;
     final rideType =
         (trip['vehicleType']?.toString().toLowerCase() == 'motorcycle')
             ? 'motorcycle'
@@ -93,33 +103,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+    _headerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 560),
+    )..forward();
     _initializeDriverSession();
-  }
-
-  Future<void> _initializeDriverSession() async {
-    final savedDriverId = await AuthService.getUserId();
-    if (savedDriverId != null && savedDriverId.isNotEmpty) {
-      _driverId = savedDriverId;
-    }
-    _vehicleCategory = await AuthService.getVehicleCategory();
-
-    if (!mounted) return;
-
-    _initSocket();
-    _fetchAvailableTrips();
-    _tripsRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_socket?.connected != true) _fetchAvailableTrips();
-    });
-    _startLocationUpdates();
-
-    // بدء خدمة الخلفية للحفاظ على اتصال السوكيت وإشعارات المشاوير
-    if (_driverId.isNotEmpty) {
-      DriverBackgroundService().startService(_driverId);
-    }
   }
 
   @override
   void dispose() {
+    _pulseController.dispose();
+    _headerController.dispose();
     _positionStreamSubscription?.cancel();
     _tripsRefreshTimer?.cancel();
     _socket?.disconnect();
@@ -128,6 +126,31 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
     // Keep DriverBackgroundService running in background
     super.dispose();
+  }
+
+  Future<void> _initializeDriverSession() async {
+    final savedDriverId = await AuthService.getUserId();
+    if (savedDriverId != null && savedDriverId.isNotEmpty) {
+      _driverId = savedDriverId;
+    }
+    _vehicleCategory = await AuthService.getVehicleCategory();
+    final role = await AuthService.getUserRole();
+    _isAdminViewer = role == 'admin' || role == 'super_admin';
+
+    if (!mounted) return;
+
+    _initSocket();
+    _fetchAvailableTrips();
+    _tripsRefreshTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      // Soft poll even while socket is connected so new trips never stick
+      // until a manual refresh.
+      _fetchAvailableTrips();
+    });
+    _startLocationUpdates();
+
+    if (_driverId.isNotEmpty && !_isAdminViewer) {
+      DriverBackgroundService().startService(_driverId);
+    }
   }
 
   Future<void> _startLocationUpdates() async {
@@ -146,6 +169,31 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
+      if (mounted) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('موقع الكابتن'),
+              content: const Text(
+                'نحتاج موقعك أثناء فتح التطبيق لاستقبال الطلبات القريبة وتتبع الرحلة للعميل.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('لاحقًا'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('سماح'),
+                ),
+              ],
+            ),
+          ),
+        );
+        if (proceed != true) return;
+      }
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         return;
@@ -231,12 +279,35 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _socket!.connect();
 
     _socket!.on('connect', (_) async {
-      _socket!.emit('driver:ready', {
-        'driverId': _driverId,
-        'vehicleCategory': _vehicleCategory,
-      });
+      if (_driverId.isEmpty) {
+        _driverId = await AuthService.getUserId() ?? '';
+      }
+      if (_vehicleCategory.isEmpty) {
+        _vehicleCategory = await AuthService.getVehicleCategory();
+      }
+      if (_isAdminViewer) {
+        _socket!.emit('admin:ready');
+      } else if (_driverId.isNotEmpty) {
+        _socket!.emit('driver:ready', {
+          'driverId': _driverId,
+          'vehicleCategory': _vehicleCategory,
+        });
+      }
       await _fetchAvailableTrips();
       if (mounted) setState(() {});
+    });
+
+    _socket!.on('reconnect', (_) async {
+      if (_driverId.isEmpty) {
+        _driverId = await AuthService.getUserId() ?? '';
+      }
+      if (!_isAdminViewer && _driverId.isNotEmpty) {
+        _socket!.emit('driver:ready', {
+          'driverId': _driverId,
+          'vehicleCategory': _vehicleCategory,
+        });
+      }
+      await _fetchAvailableTrips();
     });
 
     _socket!.on('disconnect', (_) {
@@ -247,16 +318,20 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       normalizedData['status'] ??= 'pending';
 
       // Assigned trips for this driver always show; pending must match vehicle.
+      // Admin/super_admin viewers see every trip type (car + motorcycle).
       final isMine = normalizedData['driverId'] == _driverId;
       if (!isMine && !_matchesDriverVehicle(normalizedData)) return;
 
       // Only show new requests if the driver doesn't have an active trip
-      final hasActiveTrip = _incomingTrips.any((t) =>
-          t['driverId'] == _driverId &&
-          ['accepted', 'driver_arriving', 'driver_arrived', 'started']
-              .contains(t['status']));
+      // (admins monitor all requests, so skip this guard for them).
+      if (!_isAdminViewer) {
+        final hasActiveTrip = _incomingTrips.any((t) =>
+            t['driverId'] == _driverId &&
+            ['accepted', 'driver_arriving', 'driver_arrived', 'started']
+                .contains(t['status']));
 
-      if (hasActiveTrip && !isMine) return;
+        if (hasActiveTrip && !isMine) return;
+      }
 
       final alreadyExists = _incomingTrips.any((trip) =>
           (trip['id'] ?? trip['rideId']) ==
@@ -361,10 +436,22 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
   }
 
-  Future<void> _fetchAvailableTrips() async {
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _fetchAvailableTrips({bool forceLoader = false}) async {
+    if (_isFetching) return;
+    _isFetching = true;
+
+    final showBlockingLoader =
+        forceLoader || (_isInitialLoading && _incomingTrips.isEmpty);
+
+    if (mounted) {
+      setState(() {
+        if (showBlockingLoader) {
+          _isInitialLoading = true;
+        } else {
+          _isRefreshing = true;
+        }
+      });
+    }
 
     try {
       final response = await ApiClient().dio.get('/api/trips');
@@ -389,33 +476,71 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
         if (mounted) {
           setState(() {
-            _incomingTrips.clear();
-            for (var trip in relevantTrips) {
-              _incomingTrips.add(trip);
-              final tripId = trip['id'] ?? trip['rideId'];
-              if (!_offerControllers.containsKey(tripId)) {
-                _offerControllers[tripId] = TextEditingController(
-                  text: (trip['fareEstimate'] as num?)?.toStringAsFixed(2) ??
+            // Merge instead of clearing so live socket trips don't vanish
+            // while the HTTP poll is in flight.
+            final byId = <String, Map<String, dynamic>>{};
+            for (final existing in _incomingTrips) {
+              final id = (existing['id'] ?? existing['rideId'])?.toString();
+              if (id != null && id.isNotEmpty) byId[id] = existing;
+            }
+            for (final trip in relevantTrips) {
+              final map = Map<String, dynamic>.from(trip as Map);
+              final id = (map['id'] ?? map['rideId'])?.toString();
+              if (id == null || id.isEmpty) continue;
+              byId[id] = {...?byId[id], ...map};
+              if (!_offerControllers.containsKey(id)) {
+                _offerControllers[id] = TextEditingController(
+                  text: (map['fareEstimate'] as num?)?.toStringAsFixed(2) ??
                       '0.00',
                 );
               }
             }
+            // Drop finished trips that the API no longer returns as active.
+            final activeIds = relevantTrips
+                .map((t) => (t['id'] ?? t['rideId'])?.toString())
+                .whereType<String>()
+                .toSet();
+            byId.removeWhere((id, trip) {
+              final status = trip['status']?.toString();
+              if (status == 'completed' || status == 'cancelled') return true;
+              // Keep live pending/active items; remove stale ones gone from API.
+              if (!activeIds.contains(id) &&
+                  (status == 'pending' ||
+                      status == 'accepted' ||
+                      status == 'driver_arriving' ||
+                      status == 'driver_arrived' ||
+                      status == 'started')) {
+                // If API didn't list it, trust API for pending; keep assigned mine briefly.
+                return status == 'pending';
+              }
+              return false;
+            });
+
+            _incomingTrips
+              ..clear()
+              ..addAll(byId.values);
+            _incomingTrips.sort((a, b) =>
+                (b['createdAt'] ?? '').toString().compareTo(
+                    (a['createdAt'] ?? '').toString()));
           });
         }
       }
     } catch (e) {
       debugPrint('Silent error fetching trips: $e');
     } finally {
+      _isFetching = false;
       if (mounted) {
         setState(() {
-          _isLoading = false;
+          _isInitialLoading = false;
+          _isRefreshing = false;
         });
       }
     }
   }
 
   Future<void> _submitOffer(String tripId, double offerAmount) async {
-    setState(() => _isLoading = true);
+    if (_submittingTripId != null) return;
+    setState(() => _submittingTripId = tripId);
     try {
       final driverName = await AuthService.getUserName() ?? 'كابتن زوون';
       final driverPhone = await AuthService.getUserPhone() ?? '';
@@ -465,21 +590,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _submittingTripId = null);
     }
   }
 
   Future<void> _updateTripStatus(String tripId, String status) async {
-    setState(() => _isLoading = true);
     try {
-      final response = await http.patch(
-        Uri.parse('${AppConfig.backendBaseUrl}/api/trips/$tripId/status'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'status': status}),
+      final response = await ApiClient().dio.patch(
+        '/api/trips/$tripId/status',
+        data: {'status': status},
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = response.data is Map
+            ? Map<String, dynamic>.from(response.data as Map)
+            : <String, dynamic>{};
         if (mounted) {
           final index = _incomingTrips
               .indexWhere((t) => (t['id'] ?? t['rideId']) == tripId);
@@ -488,22 +613,34 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               if (status == 'completed' || status == 'cancelled') {
                 _incomingTrips.removeAt(index);
               } else {
-                _incomingTrips[index]['status'] = data['ride']['status'];
+                _incomingTrips[index]['status'] =
+                    data['ride']?['status'] ?? status;
               }
             });
+          }
+          if (status == 'completed') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('تم إنهاء الرحلة ونقلت للأرشيف'),
+                backgroundColor: Color(0xff22C55E),
+              ),
+            );
           }
         }
       }
     } catch (e) {
       debugPrint('$e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر تحديث حالة الرحلة: $e')),
+        );
+      }
     }
   }
 
-  void _openTripTracking(Map<String, dynamic> trip) {
+  void _openTripTracking(Map<String, dynamic> trip) async {
     final tripId = (trip['id'] ?? trip['rideId']).toString();
-    Navigator.push(
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ActiveTripScreen(
@@ -516,10 +653,22 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           dropoffAddress: trip['dropoffAddress']?.toString(),
           customerName: _resolveCustomerName(trip),
           customerPhone: _resolveCustomerPhone(trip),
-          customerImageUrl: (trip['customerImageUrl'] ?? trip['userImageUrl'])?.toString(),
+          customerImageUrl:
+              (trip['customerImageUrl'] ?? trip['userImageUrl'])?.toString(),
         ),
       ),
     );
+
+    if (!mounted) return;
+    if (result == 'completed' || result == true) {
+      setState(() {
+        _incomingTrips.removeWhere(
+            (t) => (t['id'] ?? t['rideId'])?.toString() == tripId);
+      });
+      await _fetchAvailableTrips();
+    } else {
+      await _fetchAvailableTrips();
+    }
   }
 
   void _openRouteMapScreen(Map<String, dynamic> trip) {
@@ -553,7 +702,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xff0A0A0A),
+        backgroundColor: const Color(0xff0B0E14),
         body: SafeArea(
           child: Column(
             children: [
@@ -562,10 +711,61 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 child: Stack(
                   children: [
                     _buildIncomingTripsList(),
-                    if (_isLoading)
-                      const Center(
-                          child: CircularProgressIndicator(
-                              color: Color(0xffD6A84F))),
+                    if (_isInitialLoading && _incomingTrips.isEmpty)
+                      Center(
+                        child: AnimatedBuilder(
+                          animation: _pulseController,
+                          builder: (context, _) {
+                            final t = _pulseController.value;
+                            return Transform.scale(
+                              scale: 0.92 + (t * 0.08),
+                              child: Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: const Color(0xff121620),
+                                  border: Border.all(
+                                    color: Color.lerp(
+                                          const Color(0xffF97316).withOpacity(0.2),
+                                          const Color(0xffF97316).withOpacity(0.7),
+                                          t)!,
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xffF97316)
+                                          .withOpacity(0.15 + t * 0.2),
+                                      blurRadius: 18,
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.local_taxi_rounded,
+                                  color: Color(0xffF97316),
+                                  size: 28,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    if (_isRefreshing && _incomingTrips.isNotEmpty)
+                      const Positioned(
+                        top: 10,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Color(0xffF97316),
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -577,195 +777,215 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Widget _buildDispatchHeader() {
-    final isConnected = _socket?.connected == true;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-      decoration: BoxDecoration(
-        color: const Color(0xff121620),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
-        border: Border.all(color: const Color(0xff1E293B), width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.4),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
+    final tripCount = _incomingTrips.length;
+    return FadeTransition(
+      opacity: CurvedAnimation(
+        parent: _headerController,
+        curve: Curves.easeOutCubic,
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xffF97316), Color(0xffEA580C)],
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, -0.18),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(
+          parent: _headerController,
+          curve: Curves.easeOutCubic,
+        )),
+        child: Container(
+          width: double.infinity,
+          margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xff161B26), Color(0xff121620)],
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xff252E3E)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.35),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
               ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xffF97316).withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Icon(Icons.local_taxi_rounded,
-                color: Colors.white, size: 22),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'كابتن زوون',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 19,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.3,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(
-              color: const Color(0xffF97316).withOpacity(0.18),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                  color: const Color(0xffF97316).withOpacity(0.4)),
-            ),
-            child: const Text(
-              'VIP',
-              style: TextStyle(
-                color: Color(0xffF97316),
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
+              BoxShadow(
+                color: const Color(0xffF97316).withOpacity(0.06),
+                blurRadius: 20,
+                spreadRadius: -4,
               ),
-            ),
+            ],
           ),
-          const Spacer(),
-          // Server connection pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: isConnected
-                  ? const Color(0xff064E3B).withOpacity(0.3)
-                  : const Color(0xff78350F).withOpacity(0.3),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: isConnected
-                    ? const Color(0xff10B981).withOpacity(0.4)
-                    : const Color(0xffF59E0B).withOpacity(0.4),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isConnected ? Icons.bolt_rounded : Icons.sync_rounded,
-                  size: 13,
-                  color: isConnected
-                      ? const Color(0xff10B981)
-                      : const Color(0xffF59E0B),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  isConnected ? 'سيرفر نشط' : 'جاري الاتصال',
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: isConnected
-                        ? const Color(0xff10B981)
-                        : const Color(0xffF59E0B),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          // Notifications
-          IconButton(
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            icon: Stack(
-              children: [
-                const Icon(Icons.notifications_none_rounded,
-                    color: Colors.white, size: 22),
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xffF97316),
-                      shape: BoxShape.circle,
+          child: Row(
+            children: [
+              AnimatedBuilder(
+                animation: _pulseController,
+                builder: (context, child) {
+                  final glow = 0.2 + (_pulseController.value * 0.35);
+                  return Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xffF97316), Color(0xffEA580C)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xffF97316).withOpacity(glow),
+                          blurRadius: 14,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: child,
+                  );
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.asset(
+                    'assets/branding/zoon_logo.jpeg',
+                    width: 26,
+                    height: 26,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.local_taxi_rounded,
+                      color: Colors.white,
+                      size: 22,
                     ),
                   ),
                 ),
-              ],
-            ),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const NotificationsScreen(),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'كابتن زوون',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      tripCount == 0
+                          ? 'جاهز لاستقبال الطلبات'
+                          : '$tripCount طلب متاح الآن',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.55),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
-              );
-            },
+              ),
+              if (tripCount > 0)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 280),
+                  margin: const EdgeInsets.only(left: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xffF97316).withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xffF97316).withOpacity(0.45),
+                    ),
+                  ),
+                  child: Text(
+                    '$tripCount',
+                    style: const TextStyle(
+                      color: Color(0xffF97316),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                icon: const Icon(Icons.notifications_none_rounded,
+                    color: Colors.white, size: 22),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NotificationsScreen(),
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildIncomingTripsList() {
     if (_incomingTrips.isEmpty) {
-      return Center(
-        child: RefreshIndicator(
-          onRefresh: _fetchAvailableTrips,
-          color: const Color(0xffF97316),
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              SizedBox(height: MediaQuery.of(context).size.height * 0.12),
-              const SizedBox(height: 20),
-              const Center(
-                child: LogisticsSearchRadar(
-                  size: 210,
-                  icon: Icons.radar_rounded,
-                  title: 'في انتظار الطلبات الجديدة',
-                  subtitle:
-                      'أنت متصل بالشبكة وسيرفر زوون يعمل بالكامل.\nستظهر الطلبات الجديدة هنا فور إرسالها من العملاء مع إشعار وتنبيه صوتي.',
-                  primaryColor: Color(0xffF97316),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Center(
-                child: PressableScale(
-                  scaleFactor: 0.96,
-                  child: ElevatedButton.icon(
-                    onPressed: _fetchAvailableTrips,
-                    icon: const Icon(Icons.refresh_rounded, size: 18),
-                    label: const Text('تحديث الرادار الآن'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xff161B26),
-                      foregroundColor: const Color(0xffF97316),
-                      side: const BorderSide(color: Color(0xffF97316), width: 1.2),
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
+      return RefreshIndicator(
+        onRefresh: () => _fetchAvailableTrips(forceLoader: false),
+        color: const Color(0xffF97316),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(height: MediaQuery.of(context).size.height * 0.18),
+            AnimatedBuilder(
+              animation: _pulseController,
+              builder: (context, _) {
+                final t = _pulseController.value;
+                return Opacity(
+                  opacity: 0.55 + (t * 0.35),
+                  child: Transform.translate(
+                    offset: Offset(0, -6 + (t * 12)),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 88,
+                          height: 88,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: const Color(0xff121620),
+                            border: Border.all(
+                              color: const Color(0xffF97316)
+                                  .withOpacity(0.25 + t * 0.35),
+                              width: 1.4,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xffF97316)
+                                    .withOpacity(0.12 + t * 0.18),
+                                blurRadius: 28,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.local_taxi_rounded,
+                            color: Color(0xffF97316),
+                            size: 36,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ),
-            ],
-          ),
+                );
+              },
+            ),
+          ],
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
+    return RefreshIndicator(
+      onRefresh: () => _fetchAvailableTrips(forceLoader: false),
+      color: const Color(0xffF97316),
+      child: ListView.builder(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
       itemCount: _incomingTrips.length,
       itemBuilder: (context, index) {
         final trip = _incomingTrips[index];
@@ -791,7 +1011,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
         final isPending = status == 'pending';
 
-        return Container(
+        return _DriverTripEntrance(
+          index: index,
+          isPending: isPending,
+          pulse: _pulseController,
+          child: Container(
           margin: const EdgeInsets.only(bottom: 16),
           decoration: BoxDecoration(
             color: const Color(0xff121620),
@@ -1711,6 +1935,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                               ShimmerGlowButton(
                                 height: 50,
                                 borderRadius: 14,
+                                isEnabled: _submittingTripId != tripId,
                                 glowColor: const Color(0xffF97316),
                                 gradient: const LinearGradient(
                                   colors: [
@@ -1718,7 +1943,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                     Color(0xffEA580C)
                                   ],
                                 ),
-                                onPressed: () async {
+                                onPressed: _submittingTripId != null
+                                    ? null
+                                    : () async {
                                   final amount = double.tryParse(
                                           controller?.text ?? '') ??
                                       fareEstimate;
@@ -1737,7 +1964,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                     });
                                   }
                                 },
-                                child: const Row(
+                                child: _submittingTripId == tripId
+                                    ? const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.4,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(Icons.send_rounded,
@@ -1945,8 +2181,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               ],
             ),
           ),
+        ),
         );
       },
+      ),
     );
   }
 
@@ -2026,5 +2264,61 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
         child: const Icon(Icons.person_rounded, color: Color(0xffF97316), size: 24),
       );
     }
+  }
+}
+
+class _DriverTripEntrance extends StatelessWidget {
+  const _DriverTripEntrance({
+    required this.index,
+    required this.isPending,
+    required this.pulse,
+    required this.child,
+  });
+
+  final int index;
+  final bool isPending;
+  final Animation<double> pulse;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 380 + (index.clamp(0, 6) * 70)),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, animatedChild) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 22 * (1 - value)),
+            child: Transform.scale(
+              scale: 0.96 + (0.04 * value),
+              child: animatedChild,
+            ),
+          ),
+        );
+      },
+      child: AnimatedBuilder(
+        animation: pulse,
+        builder: (context, animatedChild) {
+          if (!isPending) return animatedChild!;
+          final glow = 0.08 + (pulse.value * 0.14);
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xffF97316).withOpacity(glow),
+                  blurRadius: 18,
+                  spreadRadius: -2,
+                ),
+              ],
+            ),
+            child: animatedChild,
+          );
+        },
+        child: child,
+      ),
+    );
   }
 }

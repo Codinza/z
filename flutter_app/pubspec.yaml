@@ -1,7 +1,7 @@
 name: rideflow_app
 publish_to: 'none'
 description: منصة الليموزين والشحن الموحدة - RideFlow Limousine & Shipping Platform
-version: 1.2.0+27
+version: 1.2.3+30
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -46,5 +46,7 @@ flutter:
   assets:
     - assets/intro/v.mp4
     - assets/zoon_login_background.jpeg
+    - assets/branding/zoon_logo.jpeg
+    - assets/branding/zoon_icon.png
     - assets/models/
     - assets/rive/

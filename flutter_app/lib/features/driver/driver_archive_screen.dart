@@ -6,18 +6,23 @@ class DriverArchiveScreen extends StatefulWidget {
   const DriverArchiveScreen({super.key});
 
   @override
-  State<DriverArchiveScreen> createState() => _DriverArchiveScreenState();
+  State<DriverArchiveScreen> createState() => DriverArchiveScreenState();
 }
 
-class _DriverArchiveScreenState extends State<DriverArchiveScreen> {
+class DriverArchiveScreenState extends State<DriverArchiveScreen> {
   bool _isLoading = true;
   List<dynamic> _history = [];
-  String _driverId = 'driver_dummy_001';
+  String _driverId = '';
 
   @override
   void initState() {
     super.initState();
-    _fetchHistory();
+    refresh();
+  }
+
+  Future<void> refresh() async {
+    if (mounted) setState(() => _isLoading = true);
+    await _fetchHistory();
   }
 
   Future<void> _fetchHistory() async {
@@ -26,7 +31,12 @@ class _DriverArchiveScreenState extends State<DriverArchiveScreen> {
       if (savedId != null && savedId.isNotEmpty) {
         _driverId = savedId;
       }
-      final response = await ApiClient().dio.get('/api/drivers/$_driverId/history');
+      if (_driverId.isEmpty) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+      final response =
+          await ApiClient().dio.get('/api/drivers/$_driverId/history');
       if (response.statusCode == 200) {
         if (mounted) {
           setState(() {

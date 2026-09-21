@@ -59,7 +59,6 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   Duration _waitingDuration = Duration.zero;
   bool _isUpdatingStatus = false;
   bool _hudVisible = true;
-  bool _showConfirmDestination = false;
 
   String _resolveCustomerName([Map<String, dynamic>? tripData]) {
     final rawName = (tripData?['customerName'] ??
@@ -391,8 +390,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
               backgroundColor: Color(0xff42D392),
             ),
           );
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) Navigator.pop(context);
+          Future.delayed(const Duration(milliseconds: 800), () {
+            if (mounted) Navigator.pop(context, 'completed');
           });
         }
       }
@@ -561,26 +560,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
         backgroundColor: const Color(0xff0B0E14),
         body: Stack(
           children: [
-            // 1. Full-Screen Interactive Map with Touch Sensor
-            Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: (_) {
-                if (_hudVisible || !_showConfirmDestination) {
-                  setState(() {
-                    _hudVisible = false;
-                    _showConfirmDestination = true;
-                  });
-                }
-              },
-              onPointerCancel: (_) {
-                if (mounted) {
-                  setState(() {
-                    _hudVisible = false;
-                    _showConfirmDestination = true;
-                  });
-                }
-              },
-              child: FlutterMap(
+            // 1. Full-Screen Interactive Map
+            FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
                   initialCenter: _driverLocation ?? _pickupLocation,
@@ -666,9 +647,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                   ),
                 ],
               ),
-            ),
 
-            // 2. Top Header Bar - Hides on map touch
+            // 2. Top Header Bar
             Positioned(
               top: 0,
               left: 0,
@@ -854,50 +834,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
               ),
             ),
 
-            // 4. Bottom Distance & Route Summary Panel - Hides on map touch
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 20,
-              child: AnimatedOpacity(
-                opacity: _showConfirmDestination ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 180),
-                child: IgnorePointer(
-                  ignoring: !_showConfirmDestination,
-                  child: SafeArea(
-                    top: false,
-                    child: SizedBox(
-                      height: 52,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _showConfirmDestination = false;
-                            _hudVisible = true;
-                          });
-                        },
-                        icon: const Icon(Icons.check_circle_rounded),
-                        label: const Text(
-                          'تم تأكيد الوجهة',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xff10B981),
-                          foregroundColor: Colors.white,
-                          elevation: 8,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
+            // 4. Bottom Distance & Route Summary Panel
             Positioned(
               left: 16,
               right: 16,

@@ -15,10 +15,11 @@ class DriverMainScreen extends StatefulWidget {
 
 class _DriverMainScreenState extends State<DriverMainScreen> {
   int _currentIndex = 0;
+  final _archiveKey = GlobalKey<DriverArchiveScreenState>();
 
-  final List<Widget> _screens = [
+  late final List<Widget> _screens = [
     const DriverDashboardScreen(),
-    const DriverArchiveScreen(),
+    DriverArchiveScreen(key: _archiveKey),
     const DriverEarningsScreen(),
     const DriverSettingsScreen(),
   ];
@@ -48,7 +49,9 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
         ),
         bottomNavigationBar: SafeArea(
           minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
               color: const Color(0xff121620),
               borderRadius: BorderRadius.circular(24),
@@ -63,8 +66,8 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
                   offset: const Offset(0, 8),
                 ),
                 BoxShadow(
-                  color: const Color(0xffF97316).withOpacity(0.06),
-                  blurRadius: 15,
+                  color: const Color(0xffF97316).withOpacity(0.08),
+                  blurRadius: 18,
                   spreadRadius: -2,
                 ),
               ],
@@ -95,26 +98,41 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
                   backgroundColor: Colors.transparent,
                   indicatorColor: const Color(0xffF97316).withOpacity(0.18),
                   selectedIndex: _currentIndex,
-                  onDestinationSelected: (index) => setState(() => _currentIndex = index),
+                  animationDuration: const Duration(milliseconds: 320),
+                  onDestinationSelected: (index) {
+                    if (index == _currentIndex) return;
+                    setState(() => _currentIndex = index);
+                    if (index == 1) {
+                      _archiveKey.currentState?.refresh();
+                    }
+                  },
                   destinations: const [
                     NavigationDestination(
-                      icon: Icon(Icons.radar_outlined, color: Color(0xff94A3B8)),
-                      selectedIcon: Icon(Icons.radar_rounded, color: Color(0xffF97316)),
+                      icon: Icon(Icons.grid_view_rounded,
+                          color: Color(0xff94A3B8)),
+                      selectedIcon: Icon(Icons.grid_view_rounded,
+                          color: Color(0xffF97316)),
                       label: 'الطلبات',
                     ),
                     NavigationDestination(
-                      icon: Icon(Icons.history_rounded, color: Color(0xff94A3B8)),
-                      selectedIcon: Icon(Icons.history_rounded, color: Color(0xffF97316)),
+                      icon: Icon(Icons.history_rounded,
+                          color: Color(0xff94A3B8)),
+                      selectedIcon: Icon(Icons.history_rounded,
+                          color: Color(0xffF97316)),
                       label: 'الأرشيف',
                     ),
                     NavigationDestination(
-                      icon: Icon(Icons.account_balance_wallet_outlined, color: Color(0xff94A3B8)),
-                      selectedIcon: Icon(Icons.account_balance_wallet_rounded, color: Color(0xffF97316)),
+                      icon: Icon(Icons.account_balance_wallet_outlined,
+                          color: Color(0xff94A3B8)),
+                      selectedIcon: Icon(Icons.account_balance_wallet,
+                          color: Color(0xffF97316)),
                       label: 'الأرباح',
                     ),
                     NavigationDestination(
-                      icon: Icon(Icons.settings_outlined, color: Color(0xff94A3B8)),
-                      selectedIcon: Icon(Icons.settings_rounded, color: Color(0xffF97316)),
+                      icon: Icon(Icons.settings_outlined,
+                          color: Color(0xff94A3B8)),
+                      selectedIcon:
+                          Icon(Icons.settings, color: Color(0xffF97316)),
                       label: 'الإعدادات',
                     ),
                   ],

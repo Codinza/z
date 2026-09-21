@@ -28,7 +28,7 @@ class AppConfig {
   /// Render free plan can take ~30s to wake up (cold start)
   static const Duration connectTimeout = Duration(seconds: 60);
   static const Duration receiveTimeout = Duration(seconds: 60);
-  static const Duration sendTimeout = Duration(seconds: 30);
+  static const Duration sendTimeout = Duration(seconds: 120);
 
   /// Retry settings for failed requests (e.g. server waking up)
   static const int maxRetries = 3;
