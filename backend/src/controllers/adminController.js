@@ -1,12 +1,10 @@
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { prisma } from '../db/prisma.js';
 import { tripService, emitOrderStatusChanged } from '../services/tripService.js';
 import { getOnlineDriversCount, getOnlineDriversList, emitDriverWalletUpdated } from '../sockets/socketServer.js';
 import { supportService } from '../services/supportService.js';
 import { normalizePhone } from '../utils/phone.js';
 import logger from '../utils/logger.js';
-
-const prisma = new PrismaClient();
 
 export const getTopUpRequests = async (req, res) => {
   try {
@@ -33,6 +31,7 @@ export const reviewTopUpRequest = async (req, res) => {
     }
 
     const approve = req.body.approve === true || req.body.approve === 'true';
+    const creditAmount = Number(request.amount);
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.driverTopUpRequest.update({
         where: { id: request.id },
@@ -41,17 +40,20 @@ export const reviewTopUpRequest = async (req, res) => {
           adminNote: req.body.adminNote || null,
         },
       });
-      let newBalance = request.driver?.walletBalance ?? 0;
+      let newBalance = Number(request.driver?.walletBalance ?? 0);
       if (approve) {
+        if (!Number.isFinite(creditAmount) || creditAmount <= 0) {
+          throw new Error('Invalid top-up amount');
+        }
         const driver = await tx.driver.update({
           where: { id: request.driverId },
-          data: { walletBalance: { increment: request.amount } },
+          data: { walletBalance: { increment: creditAmount } },
         });
-        newBalance = driver.walletBalance;
-        // Keep User.walletBalance in sync so any screen reading it stays correct.
-        if (request.driver?.userId) {
+        newBalance = Number(driver.walletBalance);
+        const userId = request.driver?.userId || driver.userId;
+        if (userId) {
           await tx.user.update({
-            where: { id: request.driver.userId },
+            where: { id: userId },
             data: { walletBalance: newBalance },
           });
         }
@@ -75,6 +77,13 @@ export const reviewTopUpRequest = async (req, res) => {
     }
 
     if (approve) {
+      logger.info('Driver top-up approved', {
+        requestId: request.id,
+        driverId: request.driverId,
+        userId: request.driver?.userId,
+        amount: creditAmount,
+        newBalance: result.newBalance,
+      });
       emitDriverWalletUpdated({
         driverId: request.driverId,
         userId: request.driver?.userId,
@@ -256,7 +265,7 @@ export const getAllDrivers = async (req, res) => {
         email: d.user?.email || '',
         profileImage: d.user?.profileImage,
         status: d.status || 'approved', // 'pending', 'approved', 'rejected', 'suspended'
-        walletBalance: d.walletBalance || 0.0,
+        walletBalance: Number(d.walletBalance ?? 0),
         car: d.car
           ? {
               model: d.car.model,
@@ -333,7 +342,7 @@ export const adjustDriverWallet = async (req, res) => {
     if (driver.userId) {
       await prisma.user.update({
         where: { id: driver.userId },
-        data: { walletBalance: driver.walletBalance },
+        data: { walletBalance: Number(driver.walletBalance ?? 0) },
       }).catch(() => {});
     }
 
@@ -349,16 +358,25 @@ export const adjustDriverWallet = async (req, res) => {
       }).catch(() => {});
     }
 
+    logger.info('Driver wallet adjusted', {
+      driverId: driver.id,
+      userId: driver.userId,
+      amount: numericAmount,
+      newBalance: driver.walletBalance,
+      reason,
+    });
+
     emitDriverWalletUpdated({
       driverId: driver.id,
       userId: driver.userId,
-      walletBalance: driver.walletBalance,
+      walletBalance: Number(driver.walletBalance ?? 0),
     });
 
     res.json({
       message: 'Driver wallet updated successfully',
       driverId: driver.id,
-      newBalance: driver.walletBalance,
+      userId: driver.userId,
+      newBalance: Number(driver.walletBalance ?? 0),
     });
   } catch (error) {
     logger.error('Failed to adjust driver wallet', { error: error.message, stack: error.stack });

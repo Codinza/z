@@ -61,11 +61,16 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
     });
     _socket!.on('wallet_updated', (data) {
       if (!mounted) return;
-      if (data is Map && data['walletBalance'] != null) {
-        final bal = data['walletBalance'];
-        final parsed = bal is num ? bal.toDouble() : double.tryParse('$bal');
-        if (parsed != null) {
-          setState(() => _walletBalance = parsed);
+      if (data is Map) {
+        final eventUserId = data['userId']?.toString();
+        final eventDriverId = data['driverId']?.toString();
+        final mine = _driverId;
+        if (mine != null &&
+            mine.isNotEmpty &&
+            eventUserId != null &&
+            eventUserId.isNotEmpty &&
+            eventUserId != mine &&
+            eventDriverId != mine) {
           return;
         }
       }

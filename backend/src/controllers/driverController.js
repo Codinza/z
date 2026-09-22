@@ -14,8 +14,9 @@ class DriverController {
   }
   async getWallet(req, res) {
     try {
-      const id = req.params.id || req.user?.id;
-      const wallet = await driverService.getDriverWallet(id);
+      const id =
+        req.params.id && req.params.id !== 'me' ? req.params.id : req.user?.id;
+      const wallet = await driverService.getDriverWallet(id, req.user?.id);
       return res.json(wallet);
     } catch (e) {
       return res.status(400).json({ message: e.message });

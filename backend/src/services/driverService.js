@@ -1,8 +1,6 @@
 import { driverRepository } from '../repositories/driverRepository.js';
 import { tripRepository } from '../repositories/tripRepository.js';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../db/prisma.js';
 
 class DriverService {
   async listDrivers() {
@@ -13,11 +11,53 @@ class DriverService {
     return await driverRepository.getDriverById(id);
   }
 
-  async getDriverWallet(id) {
-    const driver = await driverRepository.getDriverById(id);
+  async getDriverWallet(id, authUserId) {
+    let driver = await driverRepository.getDriverById(id, [authUserId]);
+
+    // Driver row missing but the logged-in user is a driver — heal it.
+    if (!driver && authUserId) {
+      const user = await prisma.user.findUnique({
+        where: { id: authUserId },
+        select: { id: true, role: true, walletBalance: true },
+      });
+      if (user?.role === 'driver') {
+        driver = await prisma.driver.upsert({
+          where: { userId: authUserId },
+          update: {},
+          create: {
+            userId: authUserId,
+            status: 'approved',
+            vehicleCategory: 'car',
+            walletBalance: Number(user.walletBalance ?? 0),
+          },
+        });
+      }
+    }
+
     if (!driver) {
       return { walletBalance: 0, todayEarnings: 0, todayTrips: 0 };
     }
+
+    let walletBalance = Number(driver.walletBalance ?? 0);
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: driver.userId },
+        select: { walletBalance: true },
+      });
+      const userBalance = Number(user?.walletBalance ?? 0);
+      if (userBalance > walletBalance) {
+        driver = await prisma.driver.update({
+          where: { id: driver.id },
+          data: { walletBalance: userBalance },
+        });
+        walletBalance = userBalance;
+      } else if (userBalance !== walletBalance) {
+        await prisma.user.update({
+          where: { id: driver.userId },
+          data: { walletBalance },
+        });
+      }
+    } catch (_) {}
 
     const resolvedId = driver.id;
     let completedTrips = [];
@@ -28,7 +68,9 @@ class DriverService {
     const memoryTrips = (await import('./tripService.js')).rides;
     for (const trip of memoryTrips.values()) {
       if (
-        (trip.driverId === id || trip.driverId === resolvedId) &&
+        (trip.driverId === id ||
+          trip.driverId === resolvedId ||
+          trip.driverId === driver.userId) &&
         trip.status === 'completed'
       ) {
         completedTrips.push(trip);
@@ -45,7 +87,9 @@ class DriverService {
     });
 
     return {
-      walletBalance: driver.walletBalance ?? 0,
+      walletBalance,
+      driverId: driver.id,
+      userId: driver.userId,
       todayEarnings: todayTrips.reduce(
         (total, trip) => total + (trip.finalFare ?? trip.fareEstimate ?? 0),
         0,

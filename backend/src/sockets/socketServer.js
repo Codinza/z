@@ -24,8 +24,9 @@ export function emitDriverWalletUpdated({ driverId, userId, walletBalance }) {
     timestamp: new Date().toISOString(),
   };
   if (driverId) socketIo.to(`driver:${driverId}`).emit('wallet_updated', payload);
-  if (userId) socketIo.to(`driver:${userId}`).emit('wallet_updated', payload);
-  socketIo.to('drivers').emit('wallet_updated', payload);
+  if (userId && userId !== driverId) {
+    socketIo.to(`driver:${userId}`).emit('wallet_updated', payload);
+  }
 }
 
 export function initSocketServer(io) {
@@ -48,6 +49,18 @@ export function initSocketServer(io) {
       socket.data.vehicleCategory = vehicleCategory;
       // Track this driver as online
       onlineDrivers.set(socket.id, driverId);
+
+      try {
+        const { prisma } = await import('../db/prisma.js');
+        const driver = await prisma.driver.findFirst({
+          where: { OR: [{ id: driverId }, { userId: driverId }] },
+          select: { id: true, userId: true },
+        });
+        if (driver?.id) socket.join(`driver:${driver.id}`);
+        if (driver?.userId && driver.userId !== driverId) {
+          socket.join(`driver:${driver.userId}`);
+        }
+      } catch (_) {}
       logger.info('Driver is now online', {
         driverId,
         vehicleCategory,
