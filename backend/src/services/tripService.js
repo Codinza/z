@@ -35,6 +35,116 @@ const driverAvailability = new Map([
   ['driver_dummy_002', { id: 'driver_dummy_002', isAvailable: true, lat: 24.7517, lng: 46.7161 }],
 ]);
 
+const COMMISSION_RATE = 0.10;
+/** rideId -> { driverId, amount } so we never charge twice and can refund on cancel. */
+const chargedCommissions = new Map();
+
+function calcCommission(fare) {
+  const n = Number(fare);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Number((n * COMMISSION_RATE).toFixed(2));
+}
+
+function emitWalletUpdated(driver, walletBalance) {
+  if (!io || !driver) return;
+  const payload = {
+    driverId: driver.id,
+    userId: driver.userId,
+    walletBalance,
+    timestamp: new Date().toISOString(),
+  };
+  io.to(`driver:${driver.id}`).emit('wallet_updated', payload);
+  if (driver.userId && driver.userId !== driver.id) {
+    io.to(`driver:${driver.userId}`).emit('wallet_updated', payload);
+  }
+}
+
+async function chargeCommissionOnAccept(ride, driverId) {
+  const rideId = ride?.id;
+  if (!rideId || !driverId) return 0;
+  if (ride.commissionCharged || chargedCommissions.has(rideId)) return 0;
+
+  const amount = calcCommission(ride.finalFare || ride.fareEstimate);
+  if (amount <= 0) return 0;
+
+  try {
+    const updated = await driverRepository.updateDriverWallet(driverId, -amount);
+    const newBalance = Number(updated.walletBalance ?? 0);
+    ride.commissionCharged = true;
+    ride.commissionAmount = amount;
+    chargedCommissions.set(rideId, { driverId, amount });
+
+    emitWalletUpdated(updated, newBalance);
+
+    if (updated.userId) {
+      await prisma.notification.create({
+        data: {
+          userId: updated.userId,
+          title: 'خصم عمولة المشوار',
+          body: `تم خصم ${amount} ج.م (10%) من محفظتك بعد قبول العميل لعرضك. الرصيد الحالي: ${newBalance.toFixed(2)} ج.م`,
+          type: 'wallet_commission',
+        },
+      }).catch(() => {});
+    }
+
+    logger.info('Driver commission charged on offer accept', {
+      rideId,
+      driverId,
+      amount,
+      newBalance,
+    });
+    return amount;
+  } catch (error) {
+    logger.warn('Failed to charge driver commission on accept', {
+      rideId,
+      driverId,
+      error: error.message,
+    });
+    return 0;
+  }
+}
+
+async function refundCommissionOnCancel(ride) {
+  const rideId = ride?.id;
+  const recorded = rideId ? chargedCommissions.get(rideId) : null;
+  const amount = Number(ride?.commissionAmount || recorded?.amount || 0);
+  const driverId = ride?.driverId || recorded?.driverId;
+  if (!ride?.commissionCharged && !recorded) return;
+  if (!driverId || amount <= 0) return;
+
+  try {
+    const updated = await driverRepository.updateDriverWallet(driverId, amount);
+    const newBalance = Number(updated.walletBalance ?? 0);
+    ride.commissionCharged = false;
+    chargedCommissions.delete(rideId);
+    emitWalletUpdated(updated, newBalance);
+
+    if (updated.userId) {
+      await prisma.notification.create({
+        data: {
+          userId: updated.userId,
+          title: 'استرجاع عمولة المشوار',
+          body: `تم إلغاء المشوار وإرجاع ${amount} ج.م إلى محفظتك. الرصيد الحالي: ${newBalance.toFixed(2)} ج.م`,
+          type: 'wallet_commission_refund',
+        },
+      }).catch(() => {});
+    }
+
+    logger.info('Driver commission refunded after cancel', {
+      rideId,
+      driverId,
+      amount,
+      newBalance,
+    });
+  } catch (error) {
+    logger.warn('Failed to refund driver commission on cancel', {
+      rideId,
+      driverId,
+      error: error.message,
+    });
+  }
+}
+
 function makeRideId() {
   return `ride_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -421,6 +531,7 @@ class TripService {
       ride.finalFare = offerAmount;
     }
     ride.updatedAt = new Date().toISOString();
+    await chargeCommissionOnAccept(ride, acceptedDriverId);
 
     // Emit trip status update via socket so driver and customer know it's accepted
     if (io) {
@@ -564,6 +675,7 @@ class TripService {
 
     ride.status = 'cancelled';
     ride.updatedAt = new Date().toISOString();
+    await refundCommissionOnCancel(ride);
     return ride;
   }
 
@@ -605,12 +717,6 @@ class TripService {
     try {
       await tripRepository.updateTripStatus(rideId, 'completed', ride.driverId, ride.finalFare);
       await driverRepository.updateDriverAvailability(assignment.driverId, { isAvailable: true });
-      
-      // Deduct 10% commission from driver wallet
-      try {
-        const commission = ride.finalFare * 0.10;
-        await driverRepository.updateDriverWallet(assignment.driverId, -commission);
-      } catch (_) {}
     } catch (error) {
       logger.warn('Trip completion DB update skipped: ' + error.message);
     }
@@ -928,10 +1034,11 @@ class TripService {
     ride.finalFare = offer.offerAmount;
     ride.fareEstimate = offer.offerAmount;
     ride.updatedAt = new Date().toISOString();
+    await chargeCommissionOnAccept(ride, driverId);
 
     // Also persist status update in PostgreSQL
     try {
-      await tripRepository.updateTripStatus(rideId, 'accepted', driverId);
+      await tripRepository.updateTripStatus(rideId, 'accepted', driverId, offer.offerAmount);
     } catch (_) {}
 
     // Resolve real customer phone and name for driver
