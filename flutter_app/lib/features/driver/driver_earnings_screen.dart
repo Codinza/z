@@ -10,10 +10,10 @@ class DriverEarningsScreen extends StatefulWidget {
   const DriverEarningsScreen({super.key});
 
   @override
-  State<DriverEarningsScreen> createState() => _DriverEarningsScreenState();
+  State<DriverEarningsScreen> createState() => DriverEarningsScreenState();
 }
 
-class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
+class DriverEarningsScreenState extends State<DriverEarningsScreen> {
   bool _isLoading = true;
   String? _driverId;
   double _walletBalance = 0.0;
@@ -23,8 +23,10 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchWallet();
+    refresh();
   }
+
+  Future<void> refresh() => _fetchWallet();
 
   Future<void> _fetchWallet() async {
     try {
@@ -67,25 +69,71 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('طلب شحن المحفظة'),
+          backgroundColor: const Color(0xff121620),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xff252E3E)),
+          ),
+          title: const Text(
+            'طلب شحن المحفظة',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 18,
+            ),
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
+                Text(
                   'حوّل المبلغ ثم ارفع سكرين الإيصال للمراجعة من الأدمن.',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.65),
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 TextField(
                   controller: amountController,
                   keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'المبلغ بالجنيه'),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'المبلغ بالجنيه',
+                    labelStyle: TextStyle(color: Colors.white.withOpacity(0.55)),
+                    filled: true,
+                    fillColor: const Color(0xff0B0E14),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xff1E293B)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xffF97316)),
+                    ),
+                  ),
                 ),
+                const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: paymentMethod,
-                  decoration:
-                      const InputDecoration(labelText: 'طريقة التحويل'),
+                  dropdownColor: const Color(0xff161B26),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'طريقة التحويل',
+                    labelStyle: TextStyle(color: Colors.white.withOpacity(0.55)),
+                    filled: true,
+                    fillColor: const Color(0xff0B0E14),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xff1E293B)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xffF97316)),
+                    ),
+                  ),
                   items: const [
                     DropdownMenuItem(
                         value: 'instapay', child: Text('InstaPay')),
@@ -96,7 +144,7 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                   onChanged: (value) => setDialogState(
                       () => paymentMethod = value ?? 'instapay'),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 Row(
                   children: [
                     Expanded(
@@ -111,8 +159,14 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                             setDialogState(() => receipt = selected);
                           }
                         },
-                        icon: const Icon(Icons.photo_library_outlined),
+                        icon: const Icon(Icons.photo_library_outlined,
+                            size: 18),
                         label: const Text('معرض'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xffF97316),
+                          side: const BorderSide(color: Color(0xffF97316)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -128,19 +182,25 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
                             setDialogState(() => receipt = selected);
                           }
                         },
-                        icon: const Icon(Icons.camera_alt_outlined),
+                        icon: const Icon(Icons.camera_alt_outlined, size: 18),
                         label: const Text('كاميرا'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xffF97316),
+                          side: const BorderSide(color: Color(0xffF97316)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
                       ),
                     ),
                   ],
                 ),
                 if (receipt != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
+                  const SizedBox(height: 10),
+                  const Text(
                     '✓ تم اختيار الإيصال',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w600,
+                      color: Color(0xff22C55E),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
                     ),
                   ),
                 ],
@@ -149,12 +209,20 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('إلغاء')),
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(
+                'إلغاء',
+                style: TextStyle(color: Colors.white.withOpacity(0.6)),
+              ),
+            ),
             FilledButton(
               onPressed: receipt == null
                   ? null
                   : () => Navigator.pop(dialogContext, true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xffF97316),
+                disabledBackgroundColor: const Color(0xff334155),
+              ),
               child: const Text('إرسال للأدمن'),
             ),
           ],
@@ -185,7 +253,16 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()),
+        builder: (_) => const Center(
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: Color(0xffF97316),
+            ),
+          ),
+        ),
       );
       final response = await ApiClient().dio.post(
         '/api/drivers/me/wallet/top-up-request',

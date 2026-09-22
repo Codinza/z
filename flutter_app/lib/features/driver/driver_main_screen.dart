@@ -16,11 +16,12 @@ class DriverMainScreen extends StatefulWidget {
 class _DriverMainScreenState extends State<DriverMainScreen> {
   int _currentIndex = 0;
   final _archiveKey = GlobalKey<DriverArchiveScreenState>();
+  final _earningsKey = GlobalKey<DriverEarningsScreenState>();
 
   late final List<Widget> _screens = [
     const DriverDashboardScreen(),
     DriverArchiveScreen(key: _archiveKey),
-    const DriverEarningsScreen(),
+    DriverEarningsScreen(key: _earningsKey),
     const DriverSettingsScreen(),
   ];
 
@@ -100,10 +101,17 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
                   selectedIndex: _currentIndex,
                   animationDuration: const Duration(milliseconds: 320),
                   onDestinationSelected: (index) {
-                    if (index == _currentIndex) return;
+                    if (index == _currentIndex) {
+                      if (index == 1) _archiveKey.currentState?.refresh();
+                      if (index == 2) _earningsKey.currentState?.refresh();
+                      return;
+                    }
                     setState(() => _currentIndex = index);
                     if (index == 1) {
                       _archiveKey.currentState?.refresh();
+                    }
+                    if (index == 2) {
+                      _earningsKey.currentState?.refresh();
                     }
                   },
                   destinations: const [

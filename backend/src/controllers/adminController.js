@@ -301,8 +301,16 @@ export const adjustDriverWallet = async (req, res) => {
       return res.status(400).json({ error: 'Valid amount is required' });
     }
 
+    const existing = await prisma.driver.findFirst({
+      where: { OR: [{ id }, { userId: id }] },
+      select: { id: true },
+    });
+    if (!existing) {
+      return res.status(404).json({ error: 'السائق غير موجود' });
+    }
+
     const driver = await prisma.driver.update({
-      where: { id },
+      where: { id: existing.id },
       data: { walletBalance: { increment: numericAmount } },
       include: { user: true },
     });
