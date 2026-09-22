@@ -26,8 +26,72 @@ function toWhatsAppRecipient(phone) {
   return toE164(phone).replace(/\D/g, '');
 }
 
+function buildTemplatePayloads(to, template, language, code) {
+  const buttonIndex = env.whatsappOtpButtonIndex;
+  const withButton = buttonIndex !== '';
+
+  const bodyOnly = [
+    {
+      type: 'body',
+      parameters: [{ type: 'text', text: String(code) }],
+    },
+  ];
+
+  const bodyAndButton = [
+    ...bodyOnly,
+    {
+      type: 'button',
+      sub_type: 'url',
+      index: String(buttonIndex || '0'),
+      parameters: [{ type: 'text', text: String(code) }],
+    },
+  ];
+
+  // Authentication templates sometimes accept button OTP only.
+  const buttonOnly = [
+    {
+      type: 'button',
+      sub_type: 'url',
+      index: String(buttonIndex || '0'),
+      parameters: [{ type: 'text', text: String(code) }],
+    },
+  ];
+
+  const variants = [];
+  if (withButton) {
+    variants.push({ label: 'body+button', components: bodyAndButton });
+    variants.push({ label: 'button-only', components: buttonOnly });
+  }
+  variants.push({ label: 'body-only', components: bodyOnly });
+
+  return variants.map(({ label, components }) => ({
+    label,
+    payload: {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'template',
+      template: {
+        name: template,
+        language: { code: language },
+        components,
+      },
+    },
+  }));
+}
+
+function extractWhatsAppError(body, status) {
+  return (
+    body?.error?.error_user_msg ||
+    body?.error?.message ||
+    body?.error?.error_data?.details ||
+    `HTTP ${status}`
+  );
+}
+
 /**
  * Sends an OTP via Meta WhatsApp Cloud API using an approved template.
+ * Tries a few component shapes because Auth vs Utility templates differ.
  * Docs: https://developers.facebook.com/docs/whatsapp/cloud-api
  */
 async function sendViaWhatsApp(phone, message, { code } = {}) {
@@ -38,7 +102,7 @@ async function sendViaWhatsApp(phone, message, { code } = {}) {
 
   if (!token || !phoneNumberId) {
     throw new Error(
-      'WhatsApp is not configured. Set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID.'
+      'WhatsApp is not configured. Set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID on Railway.'
     );
   }
 
@@ -52,73 +116,76 @@ async function sendViaWhatsApp(phone, message, { code } = {}) {
 
   const to = toWhatsAppRecipient(phone);
   const url = `https://graph.facebook.com/${env.whatsappGraphVersion}/${phoneNumberId}/messages`;
+  const variants = buildTemplatePayloads(to, template, language, code);
 
-  const components = [
-    {
-      type: 'body',
-      parameters: [{ type: 'text', text: String(code) }],
-    },
-  ];
+  let lastDetail = 'Unknown WhatsApp error';
+  let lastCode = null;
 
-  // Authentication templates usually require the OTP in the URL button too.
-  if (env.whatsappOtpButtonIndex !== '') {
-    components.push({
-      type: 'button',
-      sub_type: 'url',
-      index: String(env.whatsappOtpButtonIndex),
-      parameters: [{ type: 'text', text: String(code) }],
+  for (const variant of variants) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(variant.payload),
     });
-  }
 
-  const payload = {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to,
-    type: 'template',
-    template: {
-      name: template,
-      language: { code: language },
-      components,
-    },
-  };
+    const body = await response.json().catch(() => ({}));
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+    if (response.ok) {
+      logger.info('WhatsApp OTP sent', {
+        to: maskPhone(phone),
+        messageId: body?.messages?.[0]?.id,
+        template,
+        language,
+        variant: variant.label,
+      });
 
-  const body = await response.json().catch(() => ({}));
+      return {
+        provider: 'whatsapp',
+        delivered: true,
+        channel: 'whatsapp',
+        messageId: body?.messages?.[0]?.id,
+      };
+    }
 
-  if (!response.ok) {
-    const detail =
-      body?.error?.message ||
-      body?.error?.error_user_msg ||
-      `HTTP ${response.status}`;
-    logger.error('WhatsApp OTP send failed', {
+    lastDetail = extractWhatsAppError(body, response.status);
+    lastCode = body?.error?.code;
+    logger.warn('WhatsApp OTP variant failed', {
       to: maskPhone(phone),
       status: response.status,
-      detail,
-      errorCode: body?.error?.code,
+      detail: lastDetail,
+      errorCode: lastCode,
+      variant: variant.label,
+      template,
+      language,
     });
-    throw new Error(`WhatsApp send failed: ${detail}`);
+
+    // Token / permission / unknown template — no point retrying other shapes.
+    if (
+      lastCode === 190 ||
+      lastCode === 102 ||
+      lastCode === 10 ||
+      String(lastDetail).toLowerCase().includes('template name') ||
+      String(lastDetail).toLowerCase().includes('does not exist')
+    ) {
+      break;
+    }
   }
 
-  logger.info('WhatsApp OTP sent', {
+  logger.error('WhatsApp OTP send failed', {
     to: maskPhone(phone),
-    messageId: body?.messages?.[0]?.id,
+    detail: lastDetail,
+    errorCode: lastCode,
     template,
+    language,
   });
 
-  return {
-    provider: 'whatsapp',
-    delivered: true,
-    channel: 'whatsapp',
-    messageId: body?.messages?.[0]?.id,
-  };
+  const err = new Error(`WhatsApp send failed: ${lastDetail}`);
+  err.whatsappCode = lastCode;
+  err.whatsappDetail = lastDetail;
+  throw err;
 }
 
 const providers = {
@@ -154,6 +221,7 @@ export async function sendSms(phone, message, options = {}) {
       provider: env.smsProvider,
       to: maskPhone(phone),
       error: error.message,
+      whatsappCode: error.whatsappCode,
     });
     throw error;
   }

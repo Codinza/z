@@ -165,11 +165,12 @@ export const register = async (req, res) => {
       });
       return res.status(503).json({
         error:
-          'تم حفظ الحساب، لكن فشل إرسال كود التأكيد. انتظر قليلاً ثم اضغط إعادة إرسال من شاشة التأكيد، أو سجّل الدخول بنفس الرقم.',
+          'تم حفظ الحساب، لكن فشل إرسال كود التأكيد على واتساب. اضغط إعادة إرسال بعد قليل، أو راجع إعدادات واتساب على السيرفر.',
         requiresVerification: true,
         phone: normalizedPhone,
         maskedPhone: maskPhone(normalizedPhone),
         resendAfterSeconds: 0,
+        detail: error.whatsappDetail || error.message,
       });
     }
 
@@ -312,7 +313,22 @@ export const resendVerificationCode = async (req, res) => {
       });
     }
     logger.error('Resend verification code failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ error: 'فشل إرسال الكود' });
+    const detail = error.whatsappDetail || error.message || '';
+    let arabic =
+      'فشل إرسال كود واتساب. تأكد من إعدادات Meta على Railway أو أعد المحاولة.';
+    if (/token|oauth|session|190/i.test(detail)) {
+      arabic = 'توكن واتساب منتهي أو غير صالح. جدّد WHATSAPP_TOKEN على Railway.';
+    } else if (/template|132001|132000|parameter/i.test(detail)) {
+      arabic =
+        'قالب واتساب غير متطابق (الاسم/اللغة/المتغيرات). راجع WHATSAPP_OTP_TEMPLATE و WHATSAPP_OTP_LANGUAGE.';
+    } else if (/not in|allowed list|131030|recipient/i.test(detail)) {
+      arabic =
+        'الرقم مش مضاف لقائمة أرقام الاختبار في Meta (وضع التطوير). أضفه من لوحة WhatsApp أو فعّل الرقم للإنتاج.';
+    }
+    res.status(503).json({
+      error: arabic,
+      detail: env.nodeEnv === 'production' ? undefined : detail,
+    });
   }
 };
 
