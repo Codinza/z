@@ -118,12 +118,26 @@ export const register = async (req, res) => {
         },
       });
       if (plateNumber && carModel) {
+        const existingPlate = await prisma.car.findUnique({
+          where: { plateNumber: String(plateNumber).trim() },
+          select: { driverId: true },
+        });
+        if (existingPlate && existingPlate.driverId !== driver.id) {
+          return res.status(409).json({
+            error: 'رقم اللوحة مسجل بالفعل لسائق آخر. استخدم لوحة مختلفة.',
+          });
+        }
         await prisma.car.upsert({
           where: { driverId: driver.id },
-          update: { plateNumber, model: carModel, color: carColor || 'Unknown', year: parseInt(carYear) || 2024 },
+          update: {
+            plateNumber: String(plateNumber).trim(),
+            model: carModel,
+            color: carColor || 'Unknown',
+            year: parseInt(carYear) || 2024,
+          },
           create: {
             driverId: driver.id,
-            plateNumber,
+            plateNumber: String(plateNumber).trim(),
             model: carModel,
             color: carColor || 'Unknown',
             year: parseInt(carYear) || 2024,
@@ -145,7 +159,18 @@ export const register = async (req, res) => {
           retryAfterSeconds: error.retryAfterSeconds,
         });
       }
-      throw error;
+      logger.error('OTP delivery failed during registration', {
+        error: error.message,
+        phone: maskPhone(normalizedPhone),
+      });
+      return res.status(503).json({
+        error:
+          'تم حفظ الحساب، لكن فشل إرسال كود التأكيد. انتظر قليلاً ثم اضغط إعادة إرسال من شاشة التأكيد، أو سجّل الدخول بنفس الرقم.',
+        requiresVerification: true,
+        phone: normalizedPhone,
+        maskedPhone: maskPhone(normalizedPhone),
+        resendAfterSeconds: 0,
+      });
     }
 
     // No tokens yet: the account stays locked until the code is confirmed.
@@ -163,6 +188,21 @@ export const register = async (req, res) => {
       ...(otp.devCode ? { devCode: otp.devCode } : {}),
     });
   } catch (error) {
+    if (error?.code === 'P2002') {
+      const target = error.meta?.target;
+      const field = Array.isArray(target) ? target.join(',') : String(target || '');
+      if (field.includes('plateNumber')) {
+        return res.status(409).json({
+          error: 'رقم اللوحة مسجل بالفعل. استخدم لوحة مختلفة.',
+        });
+      }
+      if (field.includes('phone')) {
+        return res.status(409).json({ error: 'يوجد حساب مسجل بهذا الرقم بالفعل' });
+      }
+      if (field.includes('email')) {
+        return res.status(409).json({ error: 'البريد الإلكتروني مستخدم بالفعل' });
+      }
+    }
     logger.error('Registration failed', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'فشل إنشاء الحساب' });
   }

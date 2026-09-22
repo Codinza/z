@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../auth/auth_service.dart';
+import '../auth/otp_verification_screen.dart';
 import '../auth/pending_approval_screen.dart';
 import 'driver_main_screen.dart';
 
@@ -89,15 +90,41 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
 
+      // OTP gate: registration succeeds without tokens until phone is verified.
+      if (result != null && result['requiresVerification'] == true) {
+        final verifiedPhone =
+            (result['phone'] ?? phone).toString();
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OtpVerificationScreen(
+              phone: verifiedPhone,
+              maskedPhone: result['maskedPhone']?.toString(),
+              role: 'driver',
+              initialDevCode: result['devCode']?.toString(),
+              initialResendAfterSeconds:
+                  (result['resendAfterSeconds'] as num?)?.toInt() ?? 60,
+              channel: result['channel']?.toString() ?? 'whatsapp',
+            ),
+          ),
+        );
+        return;
+      }
+
       if (result != null && result['accessToken'] != null) {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
           (_) => false,
         );
-      } else {
-        _showErrorSnackBar(result?['error'] ?? result?['message'] ?? 'فشل إنشاء حساب الكابتن');
+        return;
       }
+
+      _showErrorSnackBar(
+        result?['error']?.toString() ??
+            result?['message']?.toString() ??
+            'فشل إنشاء حساب الكابتن',
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -120,6 +147,24 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
       final result = await AuthService.login(phone: phone, password: password);
       if (!mounted) return;
       setState(() => _isLoading = false);
+
+      if (result != null && result['requiresVerification'] == true) {
+        final verifiedPhone = (result['phone'] ?? phone).toString();
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OtpVerificationScreen(
+              phone: verifiedPhone,
+              maskedPhone: result['maskedPhone']?.toString(),
+              role: 'driver',
+              initialResendAfterSeconds: 0,
+              autoRequestCode: true,
+              channel: result['channel']?.toString() ?? 'whatsapp',
+            ),
+          ),
+        );
+        return;
+      }
 
       if (result != null && result['accessToken'] != null) {
         final role = result['user']?['role'];
@@ -146,9 +191,14 @@ class _DriverAuthScreenState extends State<DriverAuthScreen> {
             (_) => false,
           );
         }
-      } else {
-        _showErrorSnackBar(result?['error'] ?? result?['message'] ?? 'بيانات الدخول غير صحيحة');
+        return;
       }
+
+      _showErrorSnackBar(
+        result?['error']?.toString() ??
+            result?['message']?.toString() ??
+            'بيانات الدخول غير صحيحة',
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
