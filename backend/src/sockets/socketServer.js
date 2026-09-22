@@ -4,6 +4,7 @@ import { locationService } from '../services/locationService.js';
 import logger from '../utils/logger.js';
 
 const onlineDrivers = new Map(); // socketId -> driverId
+let socketIo = null;
 
 export function getOnlineDriversCount() {
   return onlineDrivers.size;
@@ -13,7 +14,22 @@ export function getOnlineDriversList() {
   return Array.from(onlineDrivers.values());
 }
 
+/** Push wallet balance changes to a driver's connected apps. */
+export function emitDriverWalletUpdated({ driverId, userId, walletBalance }) {
+  if (!socketIo) return;
+  const payload = {
+    driverId,
+    userId,
+    walletBalance,
+    timestamp: new Date().toISOString(),
+  };
+  if (driverId) socketIo.to(`driver:${driverId}`).emit('wallet_updated', payload);
+  if (userId) socketIo.to(`driver:${userId}`).emit('wallet_updated', payload);
+  socketIo.to('drivers').emit('wallet_updated', payload);
+}
+
 export function initSocketServer(io) {
+  socketIo = io;
   io.on('connection', (socket) => {
     logger.info('Socket connected', { socketId: socket.id });
 
@@ -48,6 +64,19 @@ export function initSocketServer(io) {
         return rideType === vehicleCategory;
       });
       socket.emit('pending_rides_sync', matching);
+    });
+
+    socket.on('admin:ready', async () => {
+      socket.join('admins');
+      logger.info('Admin socket joined admins room', { socketId: socket.id });
+      try {
+        const pendingRides = await getPendingRides();
+        socket.emit('pending_rides_sync', pendingRides);
+      } catch (error) {
+        logger.warn('Failed to sync pending rides to admin', {
+          error: error.message,
+        });
+      }
     });
 
     socket.on('driver_location_update', async (data) => {

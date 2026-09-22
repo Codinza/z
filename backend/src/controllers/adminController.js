@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { tripService, emitOrderStatusChanged } from '../services/tripService.js';
-import { getOnlineDriversCount, getOnlineDriversList } from '../sockets/socketServer.js';
+import { getOnlineDriversCount, getOnlineDriversList, emitDriverWalletUpdated } from '../sockets/socketServer.js';
 import { supportService } from '../services/supportService.js';
 import { normalizePhone } from '../utils/phone.js';
 import logger from '../utils/logger.js';
@@ -48,6 +48,13 @@ export const reviewTopUpRequest = async (req, res) => {
           data: { walletBalance: { increment: request.amount } },
         });
         newBalance = driver.walletBalance;
+        // Keep User.walletBalance in sync so any screen reading it stays correct.
+        if (request.driver?.userId) {
+          await tx.user.update({
+            where: { id: request.driver.userId },
+            data: { walletBalance: newBalance },
+          });
+        }
       }
       return { updated, newBalance };
     });
@@ -64,6 +71,14 @@ export const reviewTopUpRequest = async (req, res) => {
               : 'تم رفض طلب شحن المحفظة من الإدارة'),
           type: approve ? 'wallet_topup_approved' : 'wallet_topup_rejected',
         },
+      });
+    }
+
+    if (approve) {
+      emitDriverWalletUpdated({
+        driverId: request.driverId,
+        userId: request.driver?.userId,
+        walletBalance: result.newBalance,
       });
     }
 
@@ -315,6 +330,13 @@ export const adjustDriverWallet = async (req, res) => {
       include: { user: true },
     });
 
+    if (driver.userId) {
+      await prisma.user.update({
+        where: { id: driver.userId },
+        data: { walletBalance: driver.walletBalance },
+      }).catch(() => {});
+    }
+
     // Notify driver if user exists
     if (driver.userId) {
       await prisma.notification.create({
@@ -326,6 +348,12 @@ export const adjustDriverWallet = async (req, res) => {
         },
       }).catch(() => {});
     }
+
+    emitDriverWalletUpdated({
+      driverId: driver.id,
+      userId: driver.userId,
+      walletBalance: driver.walletBalance,
+    });
 
     res.json({
       message: 'Driver wallet updated successfully',

@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:socket_io_client/socket_io_client.dart' as socket_io;
+import '../../core/config/app_config.dart';
 import '../../core/network/api_client.dart';
 import '../../features/auth/auth_service.dart';
 
@@ -19,37 +22,99 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
   double _walletBalance = 0.0;
   double _todayEarnings = 0.0;
   int _todayTrips = 0;
+  Timer? _pollTimer;
+  socket_io.Socket? _socket;
 
   @override
   void initState() {
     super.initState();
     refresh();
+    _startLiveUpdates();
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _socket?.dispose();
+    super.dispose();
   }
 
   Future<void> refresh() => _fetchWallet();
 
-  Future<void> _fetchWallet() async {
+  void _startLiveUpdates() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (mounted) _fetchWallet(silent: true);
+    });
+
+    _socket?.dispose();
+    _socket = socket_io.io(AppConfig.backendBaseUrl, <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': false,
+    });
+    _socket!.connect();
+    _socket!.onConnect((_) async {
+      final id = await AuthService.getUserId();
+      if (id != null && id.isNotEmpty) {
+        _socket!.emit('driver:ready', {'driverId': id});
+      }
+    });
+    _socket!.on('wallet_updated', (data) {
+      if (!mounted) return;
+      if (data is Map && data['walletBalance'] != null) {
+        final bal = data['walletBalance'];
+        final parsed = bal is num ? bal.toDouble() : double.tryParse('$bal');
+        if (parsed != null) {
+          setState(() => _walletBalance = parsed);
+          return;
+        }
+      }
+      _fetchWallet(silent: true);
+    });
+  }
+
+  Future<void> _fetchWallet({bool silent = false}) async {
     try {
       _driverId = await AuthService.getUserId();
       if (_driverId == null || _driverId!.isEmpty) {
         throw Exception('Driver session not found');
       }
+      if (!silent && mounted) {
+        setState(() => _isLoading = true);
+      }
       final response = await ApiClient().dio.get('/api/drivers/me/wallet');
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && response.data is Map) {
+        final data = Map<String, dynamic>.from(response.data as Map);
+        final bal = data['walletBalance'];
+        final earnings = data['todayEarnings'];
+        final trips = data['todayTrips'];
         if (mounted) {
           setState(() {
-            _walletBalance = (response.data['walletBalance'] as num).toDouble();
-            _todayEarnings =
-                (response.data['todayEarnings'] as num?)?.toDouble() ?? 0;
-            _todayTrips = (response.data['todayTrips'] as num?)?.toInt() ?? 0;
+            _walletBalance =
+                bal is num ? bal.toDouble() : double.tryParse('$bal') ?? 0;
+            _todayEarnings = earnings is num
+                ? earnings.toDouble()
+                : double.tryParse('$earnings') ?? 0;
+            _todayTrips =
+                trips is num ? trips.toInt() : int.tryParse('$trips') ?? 0;
             _isLoading = false;
           });
         }
+      } else if (mounted) {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       debugPrint('Failed to fetch wallet: $e');
       if (mounted) {
         setState(() => _isLoading = false);
+        if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('تعذر تحديث رصيد المحفظة: $e'),
+              backgroundColor: const Color(0xffEF4444),
+            ),
+          );
+        }
       }
     }
   }
