@@ -37,8 +37,8 @@ android {
         minSdk = 24
         targetSdk = 36
         // Explicit Play version — keep in sync with pubspec.yaml
-        versionCode = 82
-        versionName = "1.4.19"
+        versionCode = 87
+        versionName = "1.4.24"
     }
 
     defaultConfig.manifestPlaceholders.appLabel = isCompanyBuild ? 'Zoon Company' : (isDriverBuild ? 'Zoon Driver' : (isAdminBuild ? 'Zoon Admin' : 'Zoon'))
