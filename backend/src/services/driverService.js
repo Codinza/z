@@ -12,15 +12,31 @@ class DriverService {
   }
 
   async getDriverWallet(id, authUserId) {
-    let driver = await driverRepository.getDriverById(id, [authUserId]);
+    // Resolve Driver row by Driver.id OR User.id (JWT /me always sends user id).
+    // Prefer authUserId so admin role-switcher wallets resolve correctly.
+    const candidateIds = [...new Set([authUserId, id].filter(Boolean))];
+    let driver = null;
+    if (candidateIds.length > 0) {
+      driver = await prisma.driver.findFirst({
+        where: {
+          OR: candidateIds.flatMap((value) => [
+            { id: value },
+            { userId: value },
+          ]),
+        },
+      });
+    }
 
-    // Driver row missing but the logged-in user is a driver — heal it.
+    // Driver row missing — heal for driver OR admin/super_admin (role switcher).
     if (!driver && authUserId) {
       const user = await prisma.user.findUnique({
         where: { id: authUserId },
         select: { id: true, role: true, walletBalance: true },
       });
-      if (user?.role === 'driver') {
+      const canDrive =
+        user &&
+        ['driver', 'admin', 'super_admin'].includes(String(user.role || ''));
+      if (canDrive) {
         driver = await prisma.driver.upsert({
           where: { userId: authUserId },
           update: {},
@@ -131,13 +147,16 @@ class DriverService {
       select: { id: true },
     });
 
-    // Driver account exists as User(role=driver) but missing Driver row — heal it.
+    // Missing Driver row — heal for driver or admin role-switcher.
     if (!driver && authUserId) {
       const user = await prisma.user.findUnique({
         where: { id: authUserId },
         select: { id: true, role: true },
       });
-      if (user?.role === 'driver') {
+      const canDrive =
+        user &&
+        ['driver', 'admin', 'super_admin'].includes(String(user.role || ''));
+      if (canDrive) {
         driver = await prisma.driver.upsert({
           where: { userId: authUserId },
           update: {},
