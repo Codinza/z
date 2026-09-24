@@ -368,6 +368,30 @@ class AuthService {
     }
     // Reset authenticated dio to use new token
     _authenticatedDio = null;
+    final role = prefs.getString(_userRoleKey);
+    if (role == 'driver' || role == 'admin' || role == 'super_admin') {
+      // Fire-and-forget: legacy Render login omits driverId.
+      // ignore: unawaited_futures
+      syncDriverProfileFromServer();
+    }
+  }
+
+  /// Resolves Driver.id via /api/auth/profile (works on old Render).
+  static Future<String?> syncDriverProfileFromServer() async {
+    try {
+      final client = await getAuthenticatedDio();
+      final response = await client.get('/api/auth/profile');
+      if (response.statusCode != 200 || response.data is! Map) return null;
+      final root = Map<String, dynamic>.from(response.data as Map);
+      final info = root['driverInfo'];
+      if (info is! Map) return null;
+      final id = info['id']?.toString();
+      if (id == null || id.isEmpty) return null;
+      await setDriverProfileId(id);
+      return id;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<String?> getToken() async {

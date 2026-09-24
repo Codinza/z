@@ -98,16 +98,49 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
     });
   }
 
+  /// Legacy Render resolves wallet by Driver.id only. Discover it via /auth/profile.
+  Future<({String? id, double? balance})> _resolveDriverFromProfile() async {
+    try {
+      final response = await ApiClient().dio.get('/api/auth/profile');
+      if (response.statusCode != 200 || response.data is! Map) {
+        return (id: null, balance: null);
+      }
+      final root = Map<String, dynamic>.from(response.data as Map);
+      final info = root['driverInfo'];
+      if (info is! Map) return (id: null, balance: null);
+      final map = Map<String, dynamic>.from(info);
+      final id = map['id']?.toString();
+      if (id != null && id.isNotEmpty) {
+        await AuthService.setDriverProfileId(id);
+      }
+      final bal = map['walletBalance'];
+      final parsed =
+          bal is num ? bal.toDouble() : double.tryParse('$bal');
+      return (id: id, balance: parsed);
+    } catch (_) {
+      return (id: null, balance: null);
+    }
+  }
+
   Future<void> _fetchWallet({bool silent = false}) async {
     try {
       final userId = await AuthService.getUserId();
-      final profileId = await AuthService.getDriverProfileId();
+      var profileId = await AuthService.getDriverProfileId();
       _driverId = userId;
       if (userId == null || userId.isEmpty) {
         throw Exception('Driver session not found');
       }
       if (!silent && mounted) {
         setState(() => _isLoading = true);
+      }
+
+      double? profileBalance;
+      if (profileId == null || profileId.isEmpty || profileId == userId) {
+        final resolved = await _resolveDriverFromProfile();
+        if (resolved.id != null && resolved.id!.isNotEmpty) {
+          profileId = resolved.id;
+        }
+        profileBalance = resolved.balance;
       }
 
       // Legacy Render only resolves Driver.id (not User.id). Try profile id first.
@@ -126,21 +159,38 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
             if (resolved != null && resolved.isNotEmpty) {
               await AuthService.setDriverProfileId(resolved);
             }
-            best = data;
-            // Prefer a non-zero balance, or a payload that includes driverId.
-            if (bal > 0 || (resolved != null && resolved.isNotEmpty)) {
+            // Prefer non-zero; skip legacy zero from User.id lookups.
+            if (bal > 0 ||
+                (resolved != null &&
+                    resolved.isNotEmpty &&
+                    resolved == id)) {
+              best = data;
               break;
             }
+            if (best == null) best = data;
           }
         } catch (_) {}
       }
-      if (best == null || best.isEmpty) {
+      if (best == null ||
+          ((best['walletBalance'] as num?)?.toDouble() ?? 0) == 0) {
         try {
           final response = await ApiClient().dio.get('/api/drivers/me/wallet');
           if (response.statusCode == 200 && response.data is Map) {
-            best = Map<String, dynamic>.from(response.data as Map);
+            final data = Map<String, dynamic>.from(response.data as Map);
+            final bal = (data['walletBalance'] as num?)?.toDouble() ?? 0;
+            if (bal > 0 || best == null) best = data;
           }
         } catch (_) {}
+      }
+      // Last resort: balance already on driverInfo from /auth/profile.
+      if ((best == null ||
+              ((best['walletBalance'] as num?)?.toDouble() ?? 0) == 0) &&
+          profileBalance != null &&
+          profileBalance > 0) {
+        best = {
+          'walletBalance': profileBalance,
+          if (profileId != null) 'driverId': profileId,
+        };
       }
       if (best != null && best.isNotEmpty && mounted) {
         final data = best;
