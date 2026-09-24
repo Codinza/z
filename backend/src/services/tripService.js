@@ -59,7 +59,14 @@ function emitWalletUpdated(driver, walletBalance) {
   }
 }
 
-async function chargeCommissionOnAccept(ride, driverId) {
+async function resolveDriverForWallet(driverId) {
+  if (!driverId) return null;
+  return prisma.driver.findFirst({
+    where: { OR: [{ id: driverId }, { userId: driverId }] },
+  });
+}
+
+async function chargeDriverCommission(ride, driverId, reason = 'arrived') {
   const rideId = ride?.id;
   if (!rideId || !driverId) return 0;
   if (ride.commissionCharged || chargedCommissions.has(rideId)) return 0;
@@ -68,11 +75,28 @@ async function chargeCommissionOnAccept(ride, driverId) {
   if (amount <= 0) return 0;
 
   try {
-    const updated = await driverRepository.updateDriverWallet(driverId, -amount);
+    const driver = await resolveDriverForWallet(driverId);
+    if (!driver) {
+      throw new Error(`Driver not found for commission: ${driverId}`);
+    }
+
+    const updated = await prisma.driver.update({
+      where: { id: driver.id },
+      data: { walletBalance: { decrement: amount } },
+    });
     const newBalance = Number(updated.walletBalance ?? 0);
+    if (updated.userId) {
+      await prisma.user
+        .update({
+          where: { id: updated.userId },
+          data: { walletBalance: newBalance },
+        })
+        .catch(() => {});
+    }
+
     ride.commissionCharged = true;
     ride.commissionAmount = amount;
-    chargedCommissions.set(rideId, { driverId, amount });
+    chargedCommissions.set(rideId, { driverId: driver.id, amount });
 
     emitWalletUpdated(updated, newBalance);
 
@@ -81,23 +105,25 @@ async function chargeCommissionOnAccept(ride, driverId) {
         data: {
           userId: updated.userId,
           title: 'خصم عمولة المشوار',
-          body: `تم خصم ${amount} ج.م (10%) من محفظتك بعد قبول العميل لعرضك. الرصيد الحالي: ${newBalance.toFixed(2)} ج.م`,
+          body: `تم خصم ${amount} ج.م (10%) من محفظتك عند الوصول للعميل. الرصيد الحالي: ${newBalance.toFixed(2)} ج.م`,
           type: 'wallet_commission',
         },
       }).catch(() => {});
     }
 
-    logger.info('Driver commission charged on offer accept', {
+    logger.info('Driver commission charged', {
       rideId,
-      driverId,
+      driverId: driver.id,
       amount,
       newBalance,
+      reason,
     });
     return amount;
   } catch (error) {
-    logger.warn('Failed to charge driver commission on accept', {
+    logger.warn('Failed to charge driver commission', {
       rideId,
       driverId,
+      reason,
       error: error.message,
     });
     return 0;
@@ -585,7 +611,6 @@ class TripService {
       ride.finalFare = offerAmount;
     }
     ride.updatedAt = new Date().toISOString();
-    await chargeCommissionOnAccept(ride, acceptedDriverId);
 
     // Emit trip status update via socket so driver and customer know it's accepted
     if (io) {
@@ -640,7 +665,14 @@ class TripService {
   }
 
   async updateTripStatus(rideId, status) {
-    const ride = rides.get(rideId);
+    let ride = rides.get(rideId);
+    if (!ride) {
+      const stored = await tripRepository.getTripById(rideId);
+      if (stored) {
+        ride = { ...stored };
+        rides.set(rideId, ride);
+      }
+    }
     if (!ride) throw new Error('Ride not found');
 
     const statusMap = {
@@ -666,6 +698,22 @@ class TripService {
 
     ride.status = normalizedStatus;
     ride.updatedAt = new Date().toISOString();
+
+    // Charge 10% when driver taps «وصلت للموقع»
+    if (normalizedStatus === 'driver_arrived') {
+      const commissionDriverId = ride.driverId;
+      if (commissionDriverId) {
+        await chargeDriverCommission(ride, commissionDriverId, 'driver_arrived');
+      }
+      try {
+        await tripRepository.updateTripStatus(
+          rideId,
+          'driver_arrived',
+          ride.driverId,
+          ride.finalFare ?? ride.fareEstimate,
+        );
+      } catch (_) {}
+    }
 
     // Emit trip status update via socket to ALL connected clients
     if (io) {
@@ -1088,7 +1136,6 @@ class TripService {
     ride.finalFare = offer.offerAmount;
     ride.fareEstimate = offer.offerAmount;
     ride.updatedAt = new Date().toISOString();
-    await chargeCommissionOnAccept(ride, driverId);
 
     // Also persist status update in PostgreSQL
     try {
