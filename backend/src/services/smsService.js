@@ -102,7 +102,7 @@ async function sendViaWhatsApp(phone, message, { code } = {}) {
 
   if (!token || !phoneNumberId) {
     throw new Error(
-      'WhatsApp is not configured. Set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID on Railway.'
+      'WhatsApp is not configured. Set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID on Render.'
     );
   }
 

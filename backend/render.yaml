@@ -2,13 +2,14 @@ services:
   - type: web
     name: zoon-api
     env: node
+    # For always-on (no sleep): upgrade this service to Starter in Render Dashboard (~$7/mo).
+    # Free plan sleeps after idle — keep-alive helps but is not a guarantee.
     plan: free
+    rootDir: backend
     buildCommand: npm install && npx prisma generate && npx prisma db push
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: PORT
-        value: 4000
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
@@ -25,3 +26,16 @@ services:
         sync: false
       - key: PAYMOB_INTEGRATION_ID
         sync: false
+      # WhatsApp Cloud API (Meta) — required for login/register OTP delivery
+      - key: SMS_PROVIDER
+        value: whatsapp
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_OTP_TEMPLATE
+        value: zoon_otp
+      - key: WHATSAPP_OTP_LANGUAGE
+        value: ar
+      - key: WHATSAPP_OTP_BUTTON_INDEX
+        value: "0"

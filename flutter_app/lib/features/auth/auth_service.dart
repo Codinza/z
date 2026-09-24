@@ -59,11 +59,12 @@ class AuthService {
       });
       if (response.statusCode == 201) {
         final data = Map<String, dynamic>.from(response.data as Map);
-        // Phone verification gate: tokens are issued only after OTP confirm.
-        if (data['requiresVerification'] == true || data['accessToken'] == null) {
-          return data;
-        }
-        await _saveAuthData(data);
+        // Never open a session from /register — even if a legacy server returns
+        // tokens. OTP confirmation is the only path that may save auth data.
+        data.remove('accessToken');
+        data.remove('refreshToken');
+        data['requiresVerification'] = true;
+        data['phone'] ??= phone;
         return data;
       }
       return null;
@@ -416,5 +417,29 @@ class AuthService {
     await prefs.remove(_companyIdKey);
     await prefs.remove(_vehicleCategoryKey);
     _authenticatedDio = null;
+  }
+
+  /// Permanently anonymizes the signed-in account (Google Play requirement).
+  static Future<Map<String, dynamic>> deleteAccount() async {
+    try {
+      final dio = await getAuthenticatedDio();
+      final response = await dio.post('/api/auth/delete-account');
+      await logout();
+      return {
+        'success': response.statusCode == 200,
+        'message': response.data is Map
+            ? (response.data['message']?.toString() ?? 'تم حذف الحساب')
+            : 'تم حذف الحساب',
+      };
+    } on DioException catch (e) {
+      return {
+        'success': false,
+        'message': e.response?.data is Map
+            ? (e.response!.data['error']?.toString() ?? 'فشل حذف الحساب')
+            : 'فشل حذف الحساب',
+      };
+    } catch (_) {
+      return {'success': false, 'message': 'فشل حذف الحساب'};
+    }
   }
 }

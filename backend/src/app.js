@@ -153,6 +153,11 @@ app.get('/api/health', async (_, res) => {
     status: dbStatus === 'connected' ? 'ok' : 'degraded',
     phase: 'limousine-shipping-platform',
     database: dbStatus,
+    otp: {
+      provider: env.smsProvider,
+      whatsappConfigured: Boolean(env.whatsappToken && env.whatsappPhoneNumberId),
+      template: env.whatsappOtpTemplate,
+    },
     timestamp: new Date().toISOString(),
   });
 });

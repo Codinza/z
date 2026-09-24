@@ -36,9 +36,9 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24
         targetSdk = 36
-        // Explicit Play version — keep in sync with pubspec.yaml (1.4.14+77)
-        versionCode = 77
-        versionName = "1.4.14"
+        // Explicit Play version — keep in sync with pubspec.yaml
+        versionCode = 82
+        versionName = "1.4.19"
     }
 
     defaultConfig.manifestPlaceholders.appLabel = isCompanyBuild ? 'Zoon Company' : (isDriverBuild ? 'Zoon Driver' : (isAdminBuild ? 'Zoon Admin' : 'Zoon'))

@@ -42,7 +42,7 @@ export const env = {
   paymobApiKey: process.env.PAYMOB_API_KEY || '',
   paymobIntegrationId: process.env.PAYMOB_INTEGRATION_ID || '',
   paymobWalletIntegrationId: process.env.PAYMOB_WALLET_INTEGRATION_ID || '',
-  smsProvider: process.env.SMS_PROVIDER || 'console',
+  smsProvider: process.env.SMS_PROVIDER || (process.env.WHATSAPP_TOKEN ? 'whatsapp' : 'console'),
   smsSenderId: process.env.SMS_SENDER_ID || 'Zoon',
   otpExpiryMinutes: Number(process.env.OTP_EXPIRY_MINUTES || 10),
   otpMaxAttempts: Number(process.env.OTP_MAX_ATTEMPTS || 5),
