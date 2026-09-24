@@ -134,8 +134,7 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
           }
         } catch (_) {}
       }
-      best ??= {};
-      if (best.isEmpty) {
+      if (best == null || best.isEmpty) {
         try {
           final response = await ApiClient().dio.get('/api/drivers/me/wallet');
           if (response.statusCode == 200 && response.data is Map) {
@@ -143,11 +142,11 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
           }
         } catch (_) {}
       }
-
-      if (best.isNotEmpty && mounted) {
-        final bal = best['walletBalance'];
-        final earnings = best['todayEarnings'];
-        final trips = best['todayTrips'];
+      if (best != null && best.isNotEmpty && mounted) {
+        final data = best;
+        final bal = data['walletBalance'];
+        final earnings = data['todayEarnings'];
+        final trips = data['todayTrips'];
         final parsedBal =
             bal is num ? bal.toDouble() : double.tryParse('$bal') ?? 0;
         // Don't let a legacy zero response wipe a live socket credit.
@@ -159,8 +158,9 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
           _todayEarnings = earnings is num
               ? earnings.toDouble()
               : double.tryParse('$earnings') ?? _todayEarnings;
-          _todayTrips =
-              trips is num ? trips.toInt() : int.tryParse('$trips') ?? _todayTrips;
+          _todayTrips = trips is num
+              ? trips.toInt()
+              : int.tryParse('$trips') ?? _todayTrips;
           _isLoading = false;
         });
       } else if (mounted) {
