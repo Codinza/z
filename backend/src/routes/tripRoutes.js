@@ -8,6 +8,7 @@ export function tripRoutes() {
   router.get('/', tripController.listTrips.bind(tripController));
   router.post('/request', tripController.requestTrip.bind(tripController));
   router.get('/:id', tripController.getTripById.bind(tripController));
+  router.post('/:id/search', tripController.startDriverSearch.bind(tripController));
   router.post('/:id/assign', tripController.assignDriver.bind(tripController));
   router.post('/:id/accept', tripController.acceptTrip.bind(tripController));
   router.post('/:id/reject', tripController.rejectTrip.bind(tripController));

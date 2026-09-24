@@ -347,7 +347,7 @@ class TripService {
       vehicleType: normalizedVehicleType,
       tripType,
       notes,
-      status: 'pending',
+      status: 'draft',
       fareEstimate,
       finalFare: fareEstimate,
       distanceKm,
@@ -363,52 +363,7 @@ class TripService {
 
     rides.set(tripId, ride);
 
-    // Emit new trip request only to drivers whose vehicle matches the request.
-    if (io) {
-      const tripRequestPayload = {
-        id: tripId,
-        rideId: tripId,
-        status: 'pending',
-        userName: ride.userName,
-        userPhone: null, // Hidden for customer privacy until accepted
-        customerImageUrl: ride.customerImageUrl,
-        pickupAddress,
-        dropoffAddress,
-        pickupLat,
-        pickupLng,
-        dropoffLat,
-        dropoffLng,
-        distanceKm,
-        fareEstimate,
-        areaType: ride.areaType,
-        vehicleType: ride.vehicleType,
-        tripType: ride.tripType,
-        notes: ride.notes,
-      };
-      try {
-        const driverSockets = await io.in('drivers').fetchSockets();
-        let targeted = 0;
-        for (const sock of driverSockets) {
-          const category = sock.data?.vehicleCategory || 'car';
-          if (category === ride.vehicleType) {
-            sock.emit('trip_request', tripRequestPayload);
-            targeted += 1;
-          }
-        }
-        // Fallback: if nobody got it (missing vehicleCategory on sockets), broadcast all.
-        if (targeted === 0 && driverSockets.length > 0) {
-          io.to('drivers').emit('trip_request', tripRequestPayload);
-        }
-      } catch (error) {
-        logger.warn('Failed to target trip_request by vehicle category', {
-          error: error.message,
-        });
-        io.to('drivers').emit('trip_request', tripRequestPayload);
-      }
-      // Admins see every trip type (car + motorcycle) in the same format.
-      io.to('admins').emit('trip_request', tripRequestPayload);
-    }
-
+    // Do NOT broadcast to drivers yet — customer must tap «بحث عن سائق».
     try {
       await tripRepository.createTrip({
         id: ride.id,
@@ -428,6 +383,105 @@ class TripService {
     } catch (error) {
       logger.warn('Trip persisted in memory only because Prisma storage is unavailable', { error: error.message });
     }
+
+    return ride;
+  }
+
+  async _broadcastTripToDrivers(ride) {
+    if (!io || !ride) return;
+
+    const tripId = ride.id;
+    const tripRequestPayload = {
+      id: tripId,
+      rideId: tripId,
+      status: 'pending',
+      userName: ride.userName,
+      userPhone: null, // Hidden for customer privacy until accepted
+      customerImageUrl: ride.customerImageUrl,
+      pickupAddress: ride.pickupAddress,
+      dropoffAddress: ride.dropoffAddress,
+      pickupLat: ride.pickupLat,
+      pickupLng: ride.pickupLng,
+      dropoffLat: ride.dropoffLat,
+      dropoffLng: ride.dropoffLng,
+      distanceKm: ride.distanceKm,
+      fareEstimate: ride.fareEstimate,
+      areaType: ride.areaType,
+      vehicleType: ride.vehicleType,
+      tripType: ride.tripType,
+      notes: ride.notes,
+    };
+
+    try {
+      const driverSockets = await io.in('drivers').fetchSockets();
+      let targeted = 0;
+      for (const sock of driverSockets) {
+        const category = sock.data?.vehicleCategory || 'car';
+        if (category === ride.vehicleType) {
+          sock.emit('trip_request', tripRequestPayload);
+          targeted += 1;
+        }
+      }
+      if (targeted === 0 && driverSockets.length > 0) {
+        io.to('drivers').emit('trip_request', tripRequestPayload);
+      }
+    } catch (error) {
+      logger.warn('Failed to target trip_request by vehicle category', {
+        error: error.message,
+      });
+      io.to('drivers').emit('trip_request', tripRequestPayload);
+    }
+    io.to('admins').emit('trip_request', tripRequestPayload);
+  }
+
+  async startDriverSearch(rideId, userId) {
+    let ride = rides.get(rideId);
+    if (!ride) {
+      try {
+        const stored = await tripRepository.getTripById(rideId);
+        if (stored) {
+          ride = {
+            ...stored,
+            vehicleType:
+              String(stored.vehicleType || '').toLowerCase() === 'motorcycle'
+                ? 'motorcycle'
+                : 'car',
+          };
+          rides.set(rideId, ride);
+        }
+      } catch (_) {}
+    }
+    if (!ride) throw new Error('Ride not found');
+
+    if (userId && ride.userId && ride.userId !== userId) {
+      throw new Error('غير مصرح ببدء البحث عن سائق لهذه الرحلة');
+    }
+
+    const status = String(ride.status || '').toLowerCase();
+    if (status === 'pending') {
+      return ride; // already searching
+    }
+    if (status !== 'draft' && status !== 'requested') {
+      throw new Error('لا يمكن بدء البحث في هذه الحالة');
+    }
+
+    ride.status = 'pending';
+    ride.updatedAt = new Date().toISOString();
+    rides.set(rideId, ride);
+
+    try {
+      await tripRepository.updateTripStatus(rideId, 'pending');
+    } catch (error) {
+      logger.warn('Failed to persist pending status', { error: error.message });
+    }
+
+    await this._broadcastTripToDrivers(ride);
+
+    io?.emit('trip_status_changed', {
+      tripId: rideId,
+      rideId,
+      status: 'pending',
+    });
 
     return ride;
   }

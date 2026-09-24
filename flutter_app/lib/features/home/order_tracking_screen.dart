@@ -5,11 +5,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 
 import '../../core/config/app_config.dart';
+import '../../core/map/zoon_map_tiles.dart';
 import '../../core/network/api_client.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/widgets/animations/zoon_animations.dart';
@@ -46,6 +46,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   late bool _isTrip;
   bool _hasFittedBounds = false;
   bool _ratingOpened = false;
+  bool _isSearchingDrivers = false;
 
   @override
   void initState() {
@@ -866,8 +867,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   String _statusTitle(String? status) {
     switch (status?.toUpperCase()) {
-      case 'NEW':
+      case 'DRAFT':
       case 'REQUESTED':
+        return _isTrip
+            ? 'تم تأكيد الرحلة'
+            : 'تم استلام الطلب وبانتظار العروض';
+      case 'NEW':
       case 'PENDING':
         return _isTrip
             ? 'جاري البحث عن سائق'
@@ -887,14 +892,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       case 'ARRIVED':
         return 'وصل السائق إلى موقعك';
       case 'CONFIRMED':
-        return 'الطلب مؤكد وجاري التجهيز';
+        return _isTrip ? 'الطلب مؤكد وجاري التجهيز' : 'الشحنة مؤكدة — جاري التجهيز للتوصيل';
       case 'STARTED':
       case 'IN_PROGRESS':
       case 'IN_TRANSIT':
       case 'ON_THE_WAY':
-        return _isTrip ? 'الرحلة قيد التنفيذ الآن' : 'الشحنة في الطريق';
+        return _isTrip ? 'الرحلة قيد التنفيذ الآن' : 'الشحنة قيد التوصيل الآن';
       case 'COMPLETED':
-        return 'اكتملت العملية بنجاح';
+        return _isTrip ? 'اكتملت العملية بنجاح' : 'تم تسليم الشحنة بنجاح';
       case 'CANCELLED':
         return 'تم إلغاء الطلب';
       default:
@@ -904,10 +909,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   String _statusSubtitle(String? status) {
     switch (status?.toUpperCase()) {
-      case 'NEW':
+      case 'DRAFT':
       case 'REQUESTED':
+        return _isTrip
+            ? 'اضغط «بحث عن سائق» لإرسال الطلب للكباتن'
+            : 'طلبك مرئي للشركات والسائقين المتاحين حالياً';
+      case 'NEW':
       case 'PENDING':
-        return 'طلبك مرئي للشركات والسائقين المتاحين حالياً';
+        return _isTrip
+            ? 'طلبك ظاهر للكباتن المتاحين — بانتظار العروض'
+            : 'طلبك مرئي للشركات والسائقين المتاحين حالياً';
       case 'PRICE_SENT':
         return 'قامت الشركة بتقديم سعر مقترح، يرجى القبول أو الرفض للمتابعة';
       case 'COMPANY_ACCEPTED':
@@ -923,14 +934,20 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       case 'ARRIVED':
         return 'السائق ينتظرك في نقطة الالتقاء المحددة';
       case 'CONFIRMED':
-        return 'تم تأكيد جميع التفاصيل وجاري التنفيذ';
+        return _isTrip
+            ? 'تم تأكيد جميع التفاصيل وجاري التنفيذ'
+            : 'الشحنة مؤكدة. الشركة هتبدأ التوصيل قريبًا';
       case 'STARTED':
       case 'IN_PROGRESS':
       case 'IN_TRANSIT':
       case 'ON_THE_WAY':
-        return 'يمكنك متابعة خط السير المباشر على الخريطة';
+        return _isTrip
+            ? 'يمكنك متابعة خط السير المباشر على الخريطة'
+            : 'الشحنة خرجت للتوصيل — تابع الحالة لحظيًا';
       case 'COMPLETED':
-        return 'تم تسليم الطلب بنجاح، شكراً لاختيارك لنا';
+        return _isTrip
+            ? 'تم تسليم الطلب بنجاح، شكراً لاختيارك لنا'
+            : 'تم تسليم الشحنة بنجاح، شكراً لاختيارك زوون';
       case 'CANCELLED':
         return 'تم إغلاق هذا الطلب ولا توجد إجراءات أخرى';
       default:
@@ -967,10 +984,62 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   bool _isCancellable(String? status) {
     final s = status?.toUpperCase();
     return s == 'NEW' ||
+        s == 'DRAFT' ||
         s == 'REQUESTED' ||
         s == 'PENDING' ||
         s == 'PRICE_SENT' ||
         s == 'COMPANY_ACCEPTED';
+  }
+
+  bool _isDraftTrip(String? status) {
+    if (!_isTrip) return false;
+    final s = status?.toUpperCase();
+    return s == 'DRAFT' || s == 'REQUESTED';
+  }
+
+  Future<void> _startDriverSearch() async {
+    if (_isSearchingDrivers || !_isTrip) return;
+    setState(() => _isSearchingDrivers = true);
+    try {
+      final response = await ApiClient().dio.post(
+        '/api/trips/${widget.orderId}/search',
+      );
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        final ride = response.data?['ride'];
+        if (ride is Map) {
+          setState(() {
+            _order = {
+              ...?_order,
+              ...Map<String, dynamic>.from(ride),
+              'status': ride['status'] ?? 'pending',
+            };
+          });
+        } else {
+          setState(() {
+            _order = {...?_order, 'status': 'pending'};
+          });
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('بدأ البحث عن سائق — طلبك ظاهر للكباتن الآن'),
+            backgroundColor: Color(0xff22C55E),
+          ),
+        );
+        await _loadOrder(silent: true);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      String msg = 'تعذر بدء البحث عن سائق';
+      if (e is DioException) {
+        msg = e.response?.data?['message']?.toString() ?? msg;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: const Color(0xffEF4444)),
+      );
+    } finally {
+      if (mounted) setState(() => _isSearchingDrivers = false);
+    }
   }
 
   @override
@@ -1052,12 +1121,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           initialZoom: 13.5,
                         ),
                         children: [
-                          TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.zoon.app',
-                            tileProvider: CancellableNetworkTileProvider(),
-                          ),
+                          ZoonMapTiles.dark(context),
 
                           // Route Polyline (Multi-layer)
                           PolylineLayer(
@@ -1389,7 +1453,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
                                 // Soft status strip (calm — no flashy car animation)
                                 if (status != 'COMPLETED' &&
-                                    status != 'CANCELLED') ...[
+                                    status != 'CANCELLED' &&
+                                    !_isDraftTrip(status)) ...[
                                   const SizedBox(height: 14),
                                   _buildCalmStatusStrip(
                                     isShipping: isShipping,
@@ -1409,6 +1474,57 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                   dropoffAddress: _addressFor('Dropoff'),
                                   price: _extractPrice(),
                                 ),
+
+                                // Search for driver — only after customer confirms (draft)
+                                if (_isDraftTrip(status)) ...[
+                                  const SizedBox(height: 14),
+                                  PressableScale(
+                                    scaleFactor: 0.97,
+                                    onTap: _isSearchingDrivers
+                                        ? null
+                                        : _startDriverSearch,
+                                    child: Container(
+                                      width: double.infinity,
+                                      height: 52,
+                                      decoration: BoxDecoration(
+                                        color: _isSearchingDrivers
+                                            ? const Color(0xff3A3A3C)
+                                            : const Color(0xffF97316),
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: _isSearchingDrivers
+                                          ? const SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2.2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                Icon(
+                                                  Icons.search_rounded,
+                                                  color: Colors.white,
+                                                  size: 22,
+                                                ),
+                                                SizedBox(width: 8),
+                                                Text(
+                                                  'بحث عن سائق',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                    ),
+                                  ),
+                                ],
 
                                 // Counter Offer Alert Card (if PRICE_SENT)
                                 if (status == 'PRICE_SENT' &&

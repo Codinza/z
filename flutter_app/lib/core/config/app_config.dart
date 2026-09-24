@@ -1,6 +1,6 @@
 
 class AppConfig {
-  static const String _productionBackendUrl = 'https://z-production-acea.up.railway.app';
+  static const String _productionBackendUrl = 'https://zoon-api.onrender.com';
 
   // Keep the local URL only as an override for debugging
   static const String _localBackendUrl = 'http://192.168.100.6:4000';

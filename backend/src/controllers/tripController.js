@@ -29,6 +29,15 @@ class TripController {
     }
   }
 
+  async startDriverSearch(req, res) {
+    try {
+      const ride = await tripService.startDriverSearch(req.params.id, req.user?.id);
+      return res.status(200).json({ message: 'Driver search started', ride });
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+  }
+
   async assignDriver(req, res) {
     try {
       const assignment = await tripService.assignDriver(req.params.id);
