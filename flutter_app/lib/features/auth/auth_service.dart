@@ -20,6 +20,52 @@ class AuthService {
   static const String _driverStatusKey = 'driver_status';
   static const String _companyIdKey = 'company_id';
   static const String _vehicleCategoryKey = 'vehicle_category';
+  static const String _driverProfileIdKey = 'driver_profile_id';
+  /// Phone waiting for OTP — blocks login until verify succeeds (client gate
+  /// while legacy servers still issue tokens without phoneVerified).
+  static const String _pendingOtpPhoneKey = 'pending_otp_phone';
+
+  /// Normalize Egyptian mobiles for comparison (01xxxxxxxxx).
+  static String normalizePhoneKey(String phone) {
+    var digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('20') && digits.length >= 12) {
+      digits = digits.substring(2);
+    }
+    if (digits.length == 10 && digits.startsWith('1')) {
+      digits = '0$digits';
+    }
+    return digits;
+  }
+
+  static Future<void> markPhoneAwaitingOtp(String phone) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = normalizePhoneKey(phone);
+    if (key.isEmpty) return;
+    await prefs.setString(_pendingOtpPhoneKey, key);
+    // Drop any accidental session so leaving OTP cannot keep the user signed in.
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_refreshTokenKey);
+    _authenticatedDio = null;
+  }
+
+  static Future<void> clearPhoneAwaitingOtp() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_pendingOtpPhoneKey);
+  }
+
+  static Future<bool> isPhoneAwaitingOtp(String? phone) async {
+    if (phone == null || phone.trim().isEmpty) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final pending = prefs.getString(_pendingOtpPhoneKey);
+    if (pending == null || pending.isEmpty) return false;
+    return pending == normalizePhoneKey(phone);
+  }
+
+  static Future<bool> hasPendingOtpGate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pending = prefs.getString(_pendingOtpPhoneKey);
+    return pending != null && pending.isNotEmpty;
+  }
 
   static Future<Dio> getAuthenticatedDio() async {
     final token = await getToken();
@@ -65,6 +111,7 @@ class AuthService {
         data.remove('refreshToken');
         data['requiresVerification'] = true;
         data['phone'] ??= phone;
+        await markPhoneAwaitingOtp((data['phone'] ?? phone).toString());
         return data;
       }
       return null;
@@ -93,6 +140,7 @@ class AuthService {
       });
       if (response.statusCode == 200) {
         final data = Map<String, dynamic>.from(response.data as Map);
+        await clearPhoneAwaitingOtp();
         await _saveAuthData(data);
         return data;
       }
@@ -145,14 +193,37 @@ class AuthService {
         'password': password,
       });
       if (response.statusCode == 200) {
-        await _saveAuthData(response.data);
-        return response.data;
+        final data = Map<String, dynamic>.from(response.data as Map);
+        final responsePhone = data['user']?['phone']?.toString() ?? '';
+        final verifiedFlag = data['user']?['phoneVerified'];
+        final explicitlyUnverified = verifiedFlag == false;
+        final gated = (!isEmail && await isPhoneAwaitingOtp(phone)) ||
+            await isPhoneAwaitingOtp(responsePhone);
+        if (explicitlyUnverified || gated) {
+          // Legacy servers may return tokens before phoneVerified — do not
+          // open a session until OTP succeeds on this device.
+          data.remove('accessToken');
+          data.remove('refreshToken');
+          data['requiresVerification'] = true;
+          data['phone'] = responsePhone.isNotEmpty ? responsePhone : phone;
+          data['error'] =
+              'لازم تأكد رقم الموبايل بالكود قبل الدخول. اطلب الكود من الشاشة التالية.';
+          await markPhoneAwaitingOtp(data['phone'].toString());
+          return data;
+        }
+        await _saveAuthData(data);
+        return data;
       }
       return null;
     } on DioException catch (e) {
       final responseData = e.response?.data;
       if (responseData is Map) {
-        return Map<String, dynamic>.from(responseData);
+        final data = Map<String, dynamic>.from(responseData);
+        if (data['requiresVerification'] == true) {
+          final p = (data['phone'] ?? phone).toString();
+          await markPhoneAwaitingOtp(p);
+        }
+        return data;
       }
       return {
         'error': e.type == DioExceptionType.connectionError ||
@@ -279,6 +350,11 @@ class AuthService {
       if (category != null) {
         await prefs.setString(_vehicleCategoryKey, category.toString());
       }
+      final driverProfileId = user['driverId']?.toString() ??
+          data['driver']?['id']?.toString();
+      if (driverProfileId != null && driverProfileId.isNotEmpty) {
+        await prefs.setString(_driverProfileIdKey, driverProfileId);
+      }
       if (user['companyId'] != null) {
         await prefs.setString(_companyIdKey, user['companyId']);
       }
@@ -343,6 +419,19 @@ class AuthService {
     return prefs.getString(_userIdKey);
   }
 
+  static Future<String?> getDriverProfileId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final id = prefs.getString(_driverProfileIdKey);
+    if (id != null && id.isNotEmpty) return id;
+    return null;
+  }
+
+  static Future<void> setDriverProfileId(String id) async {
+    if (id.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_driverProfileIdKey, id);
+  }
+
   static Future<String?> getDriverStatus() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_driverStatusKey);
@@ -402,6 +491,14 @@ class AuthService {
   }
 
   static Future<bool> isLoggedIn() async {
+    if (await hasPendingOtpGate()) {
+      // Incomplete OTP must never count as a signed-in session.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_tokenKey);
+      await prefs.remove(_refreshTokenKey);
+      _authenticatedDio = null;
+      return false;
+    }
     final token = await getToken();
     return token != null && token.isNotEmpty && _looksLikeJwt(token);
   }
@@ -416,6 +513,7 @@ class AuthService {
     await prefs.remove(_driverStatusKey);
     await prefs.remove(_companyIdKey);
     await prefs.remove(_vehicleCategoryKey);
+    await prefs.remove(_driverProfileIdKey);
     _authenticatedDio = null;
   }
 

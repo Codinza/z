@@ -831,18 +831,18 @@ class _DriversManagementTabState extends State<DriversManagementTab> {
                         setModalState(() => isSubmitting = true);
                         final navigator = Navigator.of(context);
                         final messenger = ScaffoldMessenger.of(context);
-                        final ok = await AdminService.adjustDriverWallet(
+                        final newBalance = await AdminService.adjustDriverWallet(
                           driver['id'],
                           finalAmount,
                           reason: reasonCtrl.text.trim(),
                         );
                         if (mounted) {
                           navigator.pop();
-                          if (ok) {
+                          if (newBalance != null) {
                             messenger.showSnackBar(
                               SnackBar(
                                 content: Text(
-                                    'تم تحديث رصيد الكابتن بنجاح ($finalAmount ج.م) ✓'),
+                                    'تم تحديث الرصيد. الرصيد الحالي: ${newBalance.toStringAsFixed(2)} ج.م ✓'),
                                 backgroundColor: const Color(0xff22C55E),
                               ),
                             );

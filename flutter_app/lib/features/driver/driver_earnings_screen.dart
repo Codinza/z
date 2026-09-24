@@ -54,9 +54,15 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
     });
     _socket!.connect();
     _socket!.onConnect((_) async {
-      final id = await AuthService.getUserId();
-      if (id != null && id.isNotEmpty) {
-        _socket!.emit('driver:ready', {'driverId': id});
+      final userId = await AuthService.getUserId();
+      final driverProfileId = await AuthService.getDriverProfileId();
+      if (userId != null && userId.isNotEmpty) {
+        _socket!.emit('driver:ready', {'driverId': userId});
+      }
+      if (driverProfileId != null &&
+          driverProfileId.isNotEmpty &&
+          driverProfileId != userId) {
+        _socket!.emit('driver:ready', {'driverId': driverProfileId});
       }
     });
     _socket!.on('wallet_updated', (data) {
@@ -64,13 +70,27 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
       if (data is Map) {
         final eventUserId = data['userId']?.toString();
         final eventDriverId = data['driverId']?.toString();
-        final mine = _driverId;
-        if (mine != null &&
-            mine.isNotEmpty &&
+        final userId = _driverId;
+        if (eventDriverId != null && eventDriverId.isNotEmpty) {
+          AuthService.setDriverProfileId(eventDriverId);
+        }
+        final bal = data['walletBalance'];
+        if (bal is num || (bal != null && double.tryParse('$bal') != null)) {
+          setState(() {
+            _walletBalance =
+                bal is num ? bal.toDouble() : double.parse('$bal');
+            _isLoading = false;
+          });
+          return;
+        }
+        final mineProfile = eventDriverId;
+        if (userId != null &&
+            userId.isNotEmpty &&
             eventUserId != null &&
             eventUserId.isNotEmpty &&
-            eventUserId != mine &&
-            eventDriverId != mine) {
+            eventUserId != userId &&
+            mineProfile != null &&
+            mineProfile != userId) {
           return;
         }
       }
@@ -80,31 +100,69 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
 
   Future<void> _fetchWallet({bool silent = false}) async {
     try {
-      _driverId = await AuthService.getUserId();
-      if (_driverId == null || _driverId!.isEmpty) {
+      final userId = await AuthService.getUserId();
+      final profileId = await AuthService.getDriverProfileId();
+      _driverId = userId;
+      if (userId == null || userId.isEmpty) {
         throw Exception('Driver session not found');
       }
       if (!silent && mounted) {
         setState(() => _isLoading = true);
       }
-      final response = await ApiClient().dio.get('/api/drivers/me/wallet');
-      if (response.statusCode == 200 && response.data is Map) {
-        final data = Map<String, dynamic>.from(response.data as Map);
-        final bal = data['walletBalance'];
-        final earnings = data['todayEarnings'];
-        final trips = data['todayTrips'];
-        if (mounted) {
-          setState(() {
-            _walletBalance =
-                bal is num ? bal.toDouble() : double.tryParse('$bal') ?? 0;
-            _todayEarnings = earnings is num
-                ? earnings.toDouble()
-                : double.tryParse('$earnings') ?? 0;
-            _todayTrips =
-                trips is num ? trips.toInt() : int.tryParse('$trips') ?? 0;
-            _isLoading = false;
-          });
-        }
+
+      // Legacy Render only resolves Driver.id (not User.id). Try profile id first.
+      final candidates = <String>[
+        if (profileId != null && profileId.isNotEmpty) profileId,
+        userId,
+      ];
+      Map<String, dynamic>? best;
+      for (final id in candidates.toSet()) {
+        try {
+          final response = await ApiClient().dio.get('/api/drivers/$id/wallet');
+          if (response.statusCode == 200 && response.data is Map) {
+            final data = Map<String, dynamic>.from(response.data as Map);
+            final bal = (data['walletBalance'] as num?)?.toDouble() ?? 0;
+            final resolved = data['driverId']?.toString();
+            if (resolved != null && resolved.isNotEmpty) {
+              await AuthService.setDriverProfileId(resolved);
+            }
+            best = data;
+            // Prefer a non-zero balance, or a payload that includes driverId.
+            if (bal > 0 || (resolved != null && resolved.isNotEmpty)) {
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+      best ??= {};
+      if (best.isEmpty) {
+        try {
+          final response = await ApiClient().dio.get('/api/drivers/me/wallet');
+          if (response.statusCode == 200 && response.data is Map) {
+            best = Map<String, dynamic>.from(response.data as Map);
+          }
+        } catch (_) {}
+      }
+
+      if (best.isNotEmpty && mounted) {
+        final bal = best['walletBalance'];
+        final earnings = best['todayEarnings'];
+        final trips = best['todayTrips'];
+        final parsedBal =
+            bal is num ? bal.toDouble() : double.tryParse('$bal') ?? 0;
+        // Don't let a legacy zero response wipe a live socket credit.
+        final keepLive = silent && parsedBal == 0 && _walletBalance > 0;
+        setState(() {
+          if (!keepLive) {
+            _walletBalance = parsedBal;
+          }
+          _todayEarnings = earnings is num
+              ? earnings.toDouble()
+              : double.tryParse('$earnings') ?? _todayEarnings;
+          _todayTrips =
+              trips is num ? trips.toInt() : int.tryParse('$trips') ?? _todayTrips;
+          _isLoading = false;
+        });
       } else if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -335,7 +393,7 @@ class DriverEarningsScreenState extends State<DriverEarningsScreen> {
         ),
       );
       final response = await ApiClient().dio.post(
-        '/api/drivers/me/wallet/top-up-request',
+        '/api/drivers/$_driverId/wallet/top-up-request',
         data: {
           'amount': amount,
           'paymentMethod': paymentMethod,

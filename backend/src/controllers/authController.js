@@ -243,10 +243,16 @@ export const verifyPhone = async (req, res) => {
 
     let driverStatus = null;
     let vehicleCategory = null;
+    let driverProfileId = null;
+    let driverWalletBalance = null;
     if (verifiedUser.role === 'driver') {
-      const driver = await prisma.driver.findUnique({ where: { userId: verifiedUser.id } });
+      const driver = await prisma.driver.findFirst({
+        where: { OR: [{ userId: verifiedUser.id }, { id: verifiedUser.id }] },
+      });
       driverStatus = driver?.status || 'pending';
       vehicleCategory = driver?.vehicleCategory || 'car';
+      driverProfileId = driver?.id ?? null;
+      driverWalletBalance = driver ? Number(driver.walletBalance ?? 0) : null;
     }
 
     const tokens = generateTokens(verifiedUser);
@@ -260,9 +266,16 @@ export const verifyPhone = async (req, res) => {
         role: verifiedUser.role,
         driverStatus,
         vehicleCategory,
+        driverId: driverProfileId,
+        walletBalance: driverWalletBalance,
       },
-      driver: driverStatus
-        ? { status: driverStatus, vehicleCategory: vehicleCategory || 'car' }
+      driver: driverProfileId
+        ? {
+            id: driverProfileId,
+            status: driverStatus,
+            vehicleCategory: vehicleCategory || 'car',
+            walletBalance: driverWalletBalance,
+          }
         : null,
       ...tokens,
     });
@@ -383,10 +396,21 @@ export const login = async (req, res) => {
 
     let driverStatus = null;
     let vehicleCategory = null;
-    if (user.role === 'driver') {
-      const driver = await prisma.driver.findUnique({ where: { userId: user.id } });
-      driverStatus = driver?.status || 'pending';
-      vehicleCategory = driver?.vehicleCategory || 'car';
+    let driverProfileId = null;
+    let driverWalletBalance = null;
+    if (user.role === 'driver' || user.role === 'admin' || user.role === 'super_admin') {
+      const driver = await prisma.driver.findFirst({
+        where: { OR: [{ userId: user.id }, { id: user.id }] },
+      });
+      if (driver) {
+        driverStatus = driver.status || 'pending';
+        vehicleCategory = driver.vehicleCategory || 'car';
+        driverProfileId = driver.id;
+        driverWalletBalance = Number(driver.walletBalance ?? 0);
+      } else if (user.role === 'driver') {
+        driverStatus = 'pending';
+        vehicleCategory = 'car';
+      }
     }
     const tokens = generateTokens(user);
     res.json({
@@ -397,11 +421,19 @@ export const login = async (req, res) => {
         phone: user.phone,
         email: user.email,
         role: user.role,
+        phoneVerified: true,
         driverStatus,
         vehicleCategory,
+        driverId: driverProfileId,
+        walletBalance: driverWalletBalance,
       },
-      driver: driverStatus
-        ? { status: driverStatus, vehicleCategory: vehicleCategory || 'car' }
+      driver: driverProfileId
+        ? {
+            id: driverProfileId,
+            status: driverStatus,
+            vehicleCategory: vehicleCategory || 'car',
+            walletBalance: driverWalletBalance,
+          }
         : null,
       ...tokens,
     });
@@ -457,7 +489,15 @@ export const getProfile = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { id: true, name: true, phone: true, email: true, role: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        role: true,
+        phoneVerified: true,
+        createdAt: true,
+      },
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
     let driverInfo = null;

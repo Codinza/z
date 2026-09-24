@@ -47,8 +47,9 @@ class AdminService {
     }
   }
 
-  /// Directly adjust driver wallet balance (credit or debit)
-  static Future<bool> adjustDriverWallet(
+  /// Directly adjust driver wallet balance (credit or debit).
+  /// Returns the new balance on success, or null on failure.
+  static Future<double?> adjustDriverWallet(
     String driverId,
     double amount, {
     String? reason,
@@ -59,10 +60,16 @@ class AdminService {
         '/api/admin/drivers/$driverId/wallet',
         data: {'amount': amount, 'reason': reason ?? 'تعديل يدوي من الإدارة'},
       );
-      return response.statusCode == 200;
+      if (response.statusCode == 200 && response.data is Map) {
+        final data = Map<String, dynamic>.from(response.data as Map);
+        final bal = data['newBalance'];
+        if (bal is num) return bal.toDouble();
+        return double.tryParse('$bal') ?? amount;
+      }
+      return null;
     } catch (e) {
       debugPrint('AdminService.adjustDriverWallet error: $e');
-      return false;
+      return null;
     }
   }
 
