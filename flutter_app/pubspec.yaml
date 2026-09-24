@@ -1,7 +1,7 @@
 name: rideflow_app
 publish_to: 'none'
 description: منصة الليموزين والشحن الموحدة - RideFlow Limousine & Shipping Platform
-version: 1.4.24+87
+version: 1.4.25+88
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
