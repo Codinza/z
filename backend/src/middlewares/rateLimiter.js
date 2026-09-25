@@ -3,13 +3,11 @@ import logger from '../utils/logger.js';
 
 // General rate limiter for all routes
 export const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 3000, // Accommodate real-time polling & shared mobile carrier IPs
-  message: {
-    error: 'Too many requests, please try again later.',
-  },
+  windowMs: 15 * 60 * 1000,
+  max: 8000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path === '/api/health' || req.path.startsWith('/api/locations'),
   handler: (req, res) => {
     logger.warn('Rate limit exceeded', {
       ip: req.ip,
@@ -17,7 +15,7 @@ export const generalLimiter = rateLimit({
       url: req.url,
     });
     res.status(429).json({
-      error: 'Too many requests, please try again later.',
+      error: 'طلبات كثيرة. استنى قليلاً وحاول تاني.',
     });
   },
 });

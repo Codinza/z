@@ -21,6 +21,7 @@ export function tripRoutes() {
   router.post('/:id/rating', tripController.submitRating.bind(tripController));
   router.post('/:id/offer', tripController.submitDriverOffer.bind(tripController));
   router.get('/:id/offers', tripController.getTripOffers.bind(tripController));
+  router.post('/:id/reject-offer', tripController.rejectDriverOffer.bind(tripController));
   router.post('/:id/accept-offer', tripController.acceptDriverOffer.bind(tripController));
 
   return router;

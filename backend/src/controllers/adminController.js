@@ -264,7 +264,11 @@ export const getAllDrivers = async (req, res) => {
         phone: d.user?.phone || '',
         email: d.user?.email || '',
         profileImage: d.user?.profileImage,
-        status: d.status || 'approved', // 'pending', 'approved', 'rejected', 'suspended'
+        status: d.status || 'approved',
+        vehicleCategory:
+          String(d.vehicleCategory || '').toLowerCase() === 'motorcycle'
+            ? 'motorcycle'
+            : 'car',
         walletBalance: Number(d.walletBalance ?? 0),
         car: d.car
           ? {

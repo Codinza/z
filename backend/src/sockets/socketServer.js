@@ -4,6 +4,7 @@ import { locationService } from '../services/locationService.js';
 import logger from '../utils/logger.js';
 
 const onlineDrivers = new Map(); // socketId -> driverId
+const tripChats = new Map();
 let socketIo = null;
 
 export function getOnlineDriversCount() {
@@ -46,7 +47,6 @@ export function initSocketServer(io) {
 
       socket.join(`driver:${driverId}`);
       socket.join('drivers');
-      socket.data.vehicleCategory = vehicleCategory;
       // Track this driver as online
       onlineDrivers.set(socket.id, driverId);
 
@@ -54,13 +54,17 @@ export function initSocketServer(io) {
         const { prisma } = await import('../db/prisma.js');
         const driver = await prisma.driver.findFirst({
           where: { OR: [{ id: driverId }, { userId: driverId }] },
-          select: { id: true, userId: true },
+          select: { id: true, userId: true, vehicleCategory: true },
         });
+        if (driver?.vehicleCategory === 'motorcycle' || driver?.vehicleCategory === 'car') {
+          vehicleCategory = driver.vehicleCategory;
+        }
         if (driver?.id) socket.join(`driver:${driver.id}`);
         if (driver?.userId && driver.userId !== driverId) {
           socket.join(`driver:${driver.userId}`);
         }
       } catch (_) {}
+      socket.data.vehicleCategory = vehicleCategory;
       logger.info('Driver is now online', {
         driverId,
         vehicleCategory,
@@ -118,6 +122,34 @@ export function initSocketServer(io) {
     socket.on('customer:track_trip', (rideId) => {
       socket.join(`ride:${rideId}`);
       socket.emit('customer:tracking_ready', { rideId });
+    });
+
+    socket.on('trip:chat_join', (rideId) => {
+      if (!rideId) return;
+      socket.join(`ride:${rideId}`);
+      socket.emit('trip:chat_history', {
+        rideId,
+        messages: tripChats.get(String(rideId)) || [],
+      });
+    });
+
+    socket.on('trip:chat_send', (data) => {
+      const rideId = data?.rideId?.toString();
+      const text = String(data?.text || '').trim().slice(0, 500);
+      if (!rideId || !text) return;
+      const message = {
+        id: `${Date.now()}`,
+        rideId,
+        text,
+        senderId: data.senderId?.toString() || '',
+        senderName: data.senderName?.toString() || '',
+        senderRole: data.senderRole?.toString() || 'customer',
+        at: new Date().toISOString(),
+      };
+      const list = tripChats.get(rideId) || [];
+      list.push(message);
+      tripChats.set(rideId, list.slice(-80));
+      io.to(`ride:${rideId}`).emit('trip:chat_message', message);
     });
 
     socket.on('trip:status_update', (data) => {

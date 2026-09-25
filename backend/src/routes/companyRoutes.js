@@ -8,6 +8,8 @@ import {
   acceptOrder,
   rejectOrder,
   sendCounterOffer,
+  startDelivery,
+  completeDelivery,
 } from '../controllers/companyController.js';
 import { authMiddleware, requireRole } from '../middlewares/authMiddleware.js';
 
@@ -75,6 +77,26 @@ export const companyRoutes = () => {
         return res.status(403).json({ error: 'Company access required' });
       }
       await sendCounterOffer(req, res);
+    });
+  });
+
+  // Start delivery (CONFIRMED -> IN_PROGRESS)
+  router.post('/orders/:orderId/start-delivery', async (req, res) => {
+    await authMiddleware(req, res, async () => {
+      if (!req.user?.companyId) {
+        return res.status(403).json({ error: 'Company access required' });
+      }
+      await startDelivery(req, res);
+    });
+  });
+
+  // Complete delivery (IN_PROGRESS -> COMPLETED)
+  router.post('/orders/:orderId/complete', async (req, res) => {
+    await authMiddleware(req, res, async () => {
+      if (!req.user?.companyId) {
+        return res.status(403).json({ error: 'Company access required' });
+      }
+      await completeDelivery(req, res);
     });
   });
 

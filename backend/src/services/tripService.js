@@ -440,16 +440,11 @@ class TripService {
 
     try {
       const driverSockets = await io.in('drivers').fetchSockets();
-      let targeted = 0;
       for (const sock of driverSockets) {
         const category = sock.data?.vehicleCategory || 'car';
         if (category === ride.vehicleType) {
           sock.emit('trip_request', tripRequestPayload);
-          targeted += 1;
         }
-      }
-      if (targeted === 0 && driverSockets.length > 0) {
-        io.to('drivers').emit('trip_request', tripRequestPayload);
       }
     } catch (error) {
       logger.warn('Failed to target trip_request by vehicle category', {
@@ -700,19 +695,18 @@ class TripService {
     ride.updatedAt = new Date().toISOString();
 
     // Charge 10% when driver taps «وصلت للموقع»
-    if (normalizedStatus === 'driver_arrived') {
-      const commissionDriverId = ride.driverId;
-      if (commissionDriverId) {
-        await chargeDriverCommission(ride, commissionDriverId, 'driver_arrived');
-      }
-      try {
-        await tripRepository.updateTripStatus(
-          rideId,
-          'driver_arrived',
-          ride.driverId,
-          ride.finalFare ?? ride.fareEstimate,
-        );
-      } catch (_) {}
+    if (normalizedStatus === 'driver_arrived' && ride.driverId) {
+      await chargeDriverCommission(ride, ride.driverId, 'driver_arrived');
+    }
+    try {
+      await tripRepository.updateTripStatus(
+        rideId,
+        normalizedStatus,
+        ride.driverId,
+        ride.finalFare ?? ride.fareEstimate,
+      );
+    } catch (error) {
+      logger.warn('Trip status DB update skipped', { rideId, error: error.message });
     }
 
     // Emit trip status update via socket to ALL connected clients
@@ -807,6 +801,9 @@ class TripService {
     ride.status = 'completed';
     ride.finalFare = Number((ride.finalFare || ride.fareEstimate || 50).toFixed(2));
     ride.updatedAt = new Date().toISOString();
+    if (ride.driverId) {
+      await chargeDriverCommission(ride, ride.driverId, 'completed');
+    }
     assignment.status = 'completed';
     assignment.completedAt = new Date().toISOString();
     assignment.updatedAt = new Date().toISOString();
@@ -958,11 +955,11 @@ class TripService {
     try {
       const { driverService } = await import('./driverService.js');
       const walletInfo = await driverService.getDriverWallet(driverId);
-      if (walletInfo.walletBalance <= -50) {
-        throw new Error('رصيد المحفظة منخفض جداً. يرجى الشحن أولاً.');
+      if (walletInfo.walletBalance <= 0) {
+        throw new Error('اشحن رصيدك الأول عشان تبعت عرض');
       }
     } catch (e) {
-      if (e.message && e.message.includes('رصيد المحفظة')) throw e;
+      if (e.message && e.message.includes('اشحن')) throw e;
     }
 
     if (!ride.offers) {
@@ -1094,6 +1091,37 @@ class TripService {
       }
     }
     return ride ? (ride.offers || []) : [];
+  }
+
+  // Customer declines one driver's offer. The trip stays open for other captains.
+  async rejectDriverOffer(rideId, driverId, reason) {
+    let ride = rides.get(rideId);
+    if (!ride) {
+      const stored = await tripRepository.getTripById(rideId);
+      if (stored) {
+        ride = { ...stored, offers: [] };
+        rides.set(rideId, ride);
+      }
+    }
+    if (!ride) throw new Error('Ride not found');
+    const offer = (ride.offers || []).find((o) => o.driverId === driverId);
+    if (!offer) throw new Error('Offer not found from this driver');
+    if (offer.status === 'accepted') throw new Error('Offer already accepted');
+    offer.status = 'rejected';
+    offer.rejectedAt = new Date().toISOString();
+    offer.rejectReason = reason || 'rejected';
+
+    if (io) {
+      const payload = {
+        rideId,
+        tripId: rideId,
+        driverId,
+        reason: offer.rejectReason,
+      };
+      io.to(`driver:${driverId}`).emit('offer_rejected', payload);
+      io.emit('offer_rejected', payload);
+    }
+    return { offer };
   }
 
   // Customer accepts a specific driver's offer

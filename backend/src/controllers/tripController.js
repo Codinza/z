@@ -148,6 +148,16 @@ class TripController {
     }
   }
 
+  async rejectDriverOffer(req, res) {
+    try {
+      const { driverId, reason } = req.body;
+      const result = await tripService.rejectDriverOffer(req.params.id, driverId, reason);
+      return res.status(200).json({ message: 'Offer rejected', ...result });
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+  }
+
   async acceptDriverOffer(req, res) {
     try {
       const { driverId } = req.body;

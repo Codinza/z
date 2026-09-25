@@ -58,7 +58,14 @@ class TripRepository {
 
   async updateTripStatus(id, status, driverId = null, finalFare = null) {
     const data = { status };
-    if (driverId) data.driverId = driverId;
+    if (driverId) {
+      const driver = await prisma.driver.findFirst({
+        where: { OR: [{ id: driverId }, { userId: driverId }] },
+        select: { id: true },
+      });
+      // Trip.driverId points at Driver.id. A user id fails the link and drops the trip from earnings.
+      if (driver?.id) data.driverId = driver.id;
+    }
     if (finalFare !== null && finalFare !== undefined) data.finalFare = Number(finalFare);
 
     return prisma.trip.update({

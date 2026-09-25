@@ -58,7 +58,7 @@ export const registerCompany = async (req, res) => {
     if (existingUser) {
       return res
         .status(409)
-        .json({ error: 'User with this phone or email already exists' });
+        .json({ error: 'يوجد حساب مسجل بهذا الرقم أو البريد بالفعل' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -319,7 +319,7 @@ export const getCompanyOrders = async (req, res) => {
           AND: [
             { companyId: null }, // Orders not yet assigned to a company
             { serviceType: company.companyType },
-            { status: 'NEW' }, // New orders for this company type
+            { status: { in: ['NEW', 'COMPANY_REVIEWING'] } },
           ],
         },
       ],
@@ -460,45 +460,23 @@ export const acceptOrder = async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    if (order.companyId !== companyId) {
+    if (order.companyId && order.companyId !== companyId) {
       return res
         .status(403)
         .json({ error: 'You do not have access to this order' });
     }
 
-    // Company accepted the customer's own offer — deal is closed.
-    const updatedOrder = await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: 'CONFIRMED',
-        finalPrice: order.customerOfferPrice,
-        customerContactVisible: true,
-      },
-      include: {
-        customer: true,
-      },
-    });
+    // Marketplace flow: never auto-confirm. Matching the customer's price
+    // still goes through PRICE_SENT so the customer must approve.
+    const customerPrice = Number(order.customerOfferPrice);
+    if (!customerPrice || customerPrice <= 0) {
+      return res.status(400).json({
+        error: 'لا يوجد سعر عميل صالح. أرسل عرض سعر يدويًا.',
+      });
+    }
 
-    await prisma.notification.create({
-      data: {
-        userId: updatedOrder.customerId,
-        title: 'Order Accepted',
-        body: `Your ${updatedOrder.serviceType.toLowerCase()} order has been accepted at ${updatedOrder.customerOfferPrice} EGP`,
-        type: 'order_accepted',
-        orderId: orderId,
-      },
-    });
-
-    emitOrderStatusChanged({
-      orderId,
-      status: 'CONFIRMED',
-      price: updatedOrder.finalPrice,
-    });
-
-    res.json({
-      message: 'Order accepted and confirmed',
-      order: updatedOrder,
-    });
+    req.body = { ...(req.body || {}), offeredPrice: customerPrice };
+    return sendCounterOffer(req, res);
   } catch (error) {
     logger.error('Failed to accept order', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to accept order' });
@@ -636,5 +614,95 @@ export const sendCounterOffer = async (req, res) => {
   } catch (error) {
     logger.error('Failed to send counter offer', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to send counter offer' });
+  }
+};
+
+async function _assertCompanyOrderAccess(orderId, companyId) {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) return { error: { status: 404, message: 'Order not found' } };
+  if (order.companyId && order.companyId !== companyId) {
+    return { error: { status: 403, message: 'You do not have access to this order' } };
+  }
+  return { order };
+}
+
+export const startDelivery = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const companyId = req.user.companyId;
+    const { order, error } = await _assertCompanyOrderAccess(orderId, companyId);
+    if (error) return res.status(error.status).json({ error: error.message });
+
+    if (!['CONFIRMED', 'CUSTOMER_APPROVED', 'COMPANY_ACCEPTED'].includes(order.status)) {
+      return res.status(400).json({
+        error: 'الطلب يجب أن يكون مؤكدًا قبل بدء التوصيل',
+      });
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'IN_PROGRESS',
+        companyId: order.companyId || companyId,
+        customerContactVisible: true,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: order.customerId,
+        title: 'الشحنة في الطريق',
+        body: 'بدأت الشركة توصيل شحنتك. يمكنك متابعة الحالة الآن.',
+        type: 'order_in_progress',
+        orderId,
+      },
+    });
+
+    emitOrderStatusChanged({ orderId, status: 'IN_PROGRESS' });
+
+    res.json({ message: 'Delivery started', order: updatedOrder });
+  } catch (error) {
+    logger.error('Failed to start delivery', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to start delivery' });
+  }
+};
+
+export const completeDelivery = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const companyId = req.user.companyId;
+    const { order, error } = await _assertCompanyOrderAccess(orderId, companyId);
+    if (error) return res.status(error.status).json({ error: error.message });
+
+    if (!['IN_PROGRESS', 'OUT_FOR_DELIVERY', 'CONFIRMED'].includes(order.status)) {
+      return res.status(400).json({
+        error: 'الطلب يجب أن يكون قيد التوصيل قبل الإكمال',
+      });
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'COMPLETED',
+        companyId: order.companyId || companyId,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: order.customerId,
+        title: 'تم تسليم الشحنة',
+        body: 'تم إكمال طلب الشحن بنجاح.',
+        type: 'order_completed',
+        orderId,
+      },
+    });
+
+    emitOrderStatusChanged({ orderId, status: 'COMPLETED' });
+
+    res.json({ message: 'Delivery completed', order: updatedOrder });
+  } catch (error) {
+    logger.error('Failed to complete delivery', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to complete delivery' });
   }
 };
