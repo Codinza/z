@@ -688,7 +688,14 @@ class TripService {
       try { return await this.startTrip(rideId); } catch(e) {}
     }
     if (normalizedStatus === 'completed') {
-      try { return await this.completeTrip(rideId); } catch(e) {}
+      try {
+        return await this.completeTrip(rideId);
+      } catch (e) {
+        logger.warn('completeTrip failed', { rideId, error: e.message });
+        if (ride.driverId) {
+          await chargeDriverCommission(ride, ride.driverId, 'completed');
+        }
+      }
     }
 
     ride.status = normalizedStatus;

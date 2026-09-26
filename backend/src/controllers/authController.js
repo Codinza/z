@@ -515,7 +515,7 @@ export const getProfile = async (req, res) => {
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
     let driverInfo = null;
-    if (user.role === 'driver') {
+    if (user.role === 'driver' || user.role === 'admin' || user.role === 'super_admin') {
       driverInfo = await prisma.driver.findUnique({ where: { userId: user.id }, include: { car: true } });
     }
     res.json({ user, driverInfo });
