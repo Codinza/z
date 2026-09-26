@@ -1177,6 +1177,8 @@ class TripService {
       await tripRepository.updateTripStatus(rideId, 'accepted', driverId, offer.offerAmount);
     } catch (_) {}
 
+    await chargeDriverCommission(ride, driverId, 'accepted');
+
     // Resolve real customer phone and name for driver
     if ((!ride.userPhone || ride.userName === 'User Dummy') && ride.userId) {
       try {
@@ -1220,6 +1222,7 @@ class TripService {
         dropoffLat: ride.dropoffLat,
         dropoffLng: ride.dropoffLng,
         fareAmount: offer.offerAmount,
+        userId: ride.userId,
       };
       io.to(`driver:${driverId}`).emit('offer_accepted', offerAcceptedPayload);
       io.emit('offer_accepted', offerAcceptedPayload);
