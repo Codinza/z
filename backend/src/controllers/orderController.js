@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { emitOrderStatusChanged } from '../services/tripService.js';
+import { emitOrderStatusChanged, tripService } from '../services/tripService.js';
 import { isWithinEgypt } from '../services/mapsService.js';
 import logger from '../utils/logger.js';
 const prisma = new PrismaClient();
@@ -356,6 +356,18 @@ export const approveCustomerPrice = async (req, res) => {
         .json({ error: 'Order must be in PRICE_SENT status' });
     }
 
+    const offerAgeMs = Date.now() - new Date(order.updatedAt).getTime();
+    if (offerAgeMs > 10 * 60 * 1000) {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: 'CUSTOMER_REJECTED',
+          rejectionReason: 'انتهت مهلة العرض',
+        },
+      });
+      return res.status(400).json({ error: 'انتهت مهلة العرض' });
+    }
+
     // Customer accepted the company counter-offer — deal is closed.
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
@@ -384,6 +396,26 @@ export const approveCustomerPrice = async (req, res) => {
       status: 'CONFIRMED',
       price: updatedOrder.finalPrice,
     });
+
+    if (String(order.serviceType || '').toUpperCase() === 'SHIPPING') {
+      try {
+        await tripService.createTripRequest({
+          pickupAddress: order.shippingPickupAddress,
+          dropoffAddress: order.shippingDropoffAddress,
+          pickupLat: order.shippingPickupLat,
+          pickupLng: order.shippingPickupLng,
+          dropoffLat: order.shippingDropoffLat,
+          dropoffLng: order.shippingDropoffLng,
+          userId: order.customerId,
+          proposedFare: order.companyOfferPrice,
+          vehicleType: 'car',
+          tripType: 'shipping',
+          notes: `شحن ${order.shippingSize || ''} ${order.shippingType || ''}`.trim(),
+        });
+      } catch (err) {
+        logger.warn('Shipping trip was not broadcast to captains', { error: err.message });
+      }
+    }
 
     res.json({
       message: 'Price approved and order confirmed',
