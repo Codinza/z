@@ -11,28 +11,6 @@ export const authMiddleware = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, env.jwtSecret);
     req.user = decoded;
-
-    // Block legacy tokens issued before the OTP gate (unverified phone).
-    const role = String(decoded?.role || '');
-    const isStaff = role === 'admin' || role === 'super_admin';
-    if (decoded?.id && !isStaff) {
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.id },
-        select: { phoneVerified: true, phone: true },
-      });
-      const isGuest = user?.phone === 'guest_customer_001';
-      if (user && !user.phoneVerified && !isGuest) {
-        return res.status(403).json({
-          error: 'رقم الموبايل غير مؤكد. أدخل كود التأكيد لتفعيل الحساب.',
-          requiresVerification: true,
-          phone: user.phone,
-          maskedPhone: user.phone
-            ? `${String(user.phone).slice(0, 3)}****${String(user.phone).slice(-2)}`
-            : undefined,
-        });
-      }
-    }
-
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Invalid or expired token' });

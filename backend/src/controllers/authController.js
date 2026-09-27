@@ -98,16 +98,14 @@ export const register = async (req, res) => {
           where: { id: existingUser.id },
           data: {
             ...profile,
-            ...(String(normalizedPhone).endsWith('1024715776')
-              ? { phoneVerified: true }
-              : {}),
+            phoneVerified: true,
           },
         })
       : await prisma.user.create({
           data: {
             ...profile,
             phone: normalizedPhone,
-            phoneVerified: String(normalizedPhone).endsWith('1024715776'),
+            phoneVerified: true,
           },
         });
 
@@ -160,47 +158,45 @@ export const register = async (req, res) => {
       }
     }
 
-    let otp;
-    try {
-      otp = await issueOtp({ phone: normalizedPhone, purpose: 'REGISTRATION' });
-    } catch (error) {
-      if (error.code === 'OTP_COOLDOWN') {
-        return res.status(429).json({
-          error: `تم إرسال كود بالفعل. انتظر ${error.retryAfterSeconds} ثانية.`,
-          requiresVerification: true,
-          phone: normalizedPhone,
-          maskedPhone: maskPhone(normalizedPhone),
-          retryAfterSeconds: error.retryAfterSeconds,
-        });
-      }
-      logger.error('OTP delivery failed during registration', {
-        error: error.message,
-        phone: maskPhone(normalizedPhone),
+    let driverStatus = null;
+    let vehicleCategoryOut = null;
+    let driverProfileId = null;
+    let driverWalletBalance = null;
+    if (userRole === 'driver') {
+      const driver = await prisma.driver.findFirst({
+        where: { userId: user.id },
       });
-      return res.status(503).json({
-        error:
-          'تم حفظ الحساب، لكن فشل إرسال كود التأكيد على واتساب. اضغط إعادة إرسال بعد قليل، أو راجع إعدادات واتساب على السيرفر.',
-        requiresVerification: true,
-        phone: normalizedPhone,
-        maskedPhone: maskPhone(normalizedPhone),
-        resendAfterSeconds: 0,
-        detail: error.whatsappDetail || error.message,
-      });
+      driverStatus = driver?.status || 'pending';
+      vehicleCategoryOut = driver?.vehicleCategory || 'car';
+      driverProfileId = driver?.id ?? null;
+      driverWalletBalance = driver ? Number(driver.walletBalance ?? 0) : null;
     }
 
-    // No tokens yet: the account stays locked until the code is confirmed.
+    const tokens = generateTokens(user);
     res.status(201).json({
-      message:
-        otp.channel === 'whatsapp'
-          ? 'تم إنشاء الحساب. أدخل كود التأكيد المرسل على واتساب.'
-          : 'تم إنشاء الحساب. أدخل كود التأكيد المرسل إلى رقمك.',
-      requiresVerification: true,
-      phone: normalizedPhone,
-      maskedPhone: maskPhone(normalizedPhone),
-      channel: otp.channel,
-      expiresAt: otp.expiresAt,
-      resendAfterSeconds: otp.resendAfterSeconds,
-      ...(otp.devCode ? { devCode: otp.devCode } : {}),
+      message: 'تم إنشاء الحساب',
+      requiresVerification: false,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+        role: user.role,
+        phoneVerified: true,
+        driverStatus,
+        vehicleCategory: vehicleCategoryOut,
+        driverId: driverProfileId,
+        walletBalance: driverWalletBalance,
+      },
+      driver: driverProfileId
+        ? {
+            id: driverProfileId,
+            status: driverStatus,
+            vehicleCategory: vehicleCategoryOut || 'car',
+            walletBalance: driverWalletBalance,
+          }
+        : null,
+      ...tokens,
     });
   } catch (error) {
     if (error?.code === 'P2002') {
@@ -397,14 +393,10 @@ export const login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Checked only after the password, so a wrong password never reveals
-    // whether an account exists or what state it is in.
     if (!user.phoneVerified) {
-      return res.status(403).json({
-        error: 'رقم الموبايل غير مؤكد. أدخل كود التأكيد لتفعيل الحساب.',
-        requiresVerification: true,
-        phone: user.phone,
-        maskedPhone: maskPhone(user.phone),
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { phoneVerified: true },
       });
     }
 
