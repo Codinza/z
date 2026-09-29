@@ -1,5 +1,6 @@
 // Track online drivers
 import { getPendingRides } from '../services/tripService.js';
+import { driverMatchesRide } from '../services/rideMatch.js';
 import { locationService } from '../services/locationService.js';
 import logger from '../utils/logger.js';
 
@@ -38,10 +39,11 @@ export function initSocketServer(io) {
     socket.on('driver:ready', async (payload) => {
       const driverId =
         typeof payload === 'string' ? payload : payload?.driverId;
-      const vehicleCategory =
+      let vehicleCategory =
         typeof payload === 'object' && payload?.vehicleCategory === 'motorcycle'
           ? 'motorcycle'
           : 'car';
+      let rideTier = 'standard';
 
       if (!driverId) return;
 
@@ -54,7 +56,7 @@ export function initSocketServer(io) {
         const { prisma } = await import('../db/prisma.js');
         const driver = await prisma.driver.findFirst({
           where: { OR: [{ id: driverId }, { userId: driverId }] },
-          select: { id: true, userId: true, vehicleCategory: true },
+          select: { id: true, userId: true, vehicleCategory: true, rideTier: true },
         });
         if (driver?.vehicleCategory === 'motorcycle' || driver?.vehicleCategory === 'car') {
           vehicleCategory = driver.vehicleCategory;
@@ -63,8 +65,10 @@ export function initSocketServer(io) {
         if (driver?.userId && driver.userId !== driverId) {
           socket.join(`driver:${driver.userId}`);
         }
+        rideTier = driver?.rideTier || 'standard';
       } catch (_) {}
       socket.data.vehicleCategory = vehicleCategory;
+      socket.data.rideTier = rideTier;
       logger.info('Driver is now online', {
         driverId,
         vehicleCategory,
@@ -73,13 +77,9 @@ export function initSocketServer(io) {
       io.emit('driver:status', { driverId, ready: true, onlineCount: onlineDrivers.size });
       // Sync only pending rides that match this driver's vehicle category
       const pendingRides = await getPendingRides();
-      const matching = pendingRides.filter((ride) => {
-        const rideType =
-          String(ride.vehicleType || '').toLowerCase() === 'motorcycle'
-            ? 'motorcycle'
-            : 'car';
-        return rideType === vehicleCategory;
-      });
+      const matching = pendingRides.filter((ride) =>
+        driverMatchesRide(ride, vehicleCategory, socket.data.rideTier)
+      );
       socket.emit('pending_rides_sync', matching);
     });
 

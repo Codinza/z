@@ -5,6 +5,7 @@ import {
   updateDriverStatus,
   adjustDriverWallet,
   approveDriver,
+  setDriverRideTier,
   rejectDriver,
   createApprovedDriver,
   deleteDriver,
@@ -42,6 +43,7 @@ export const adminRoutes = () => {
   router.patch('/drivers/:id/status', updateDriverStatus);
   router.post('/drivers/:id/wallet', adjustDriverWallet);
   router.post('/drivers/:id/approve', approveDriver);
+  router.post('/drivers/:id/ride-tier', setDriverRideTier);
   router.post('/drivers/:id/reject', rejectDriver);
   router.delete('/drivers/:id', deleteDriver);
 

@@ -6,6 +6,7 @@ import { env } from './config/env.js';
 import { prisma } from './db/prisma.js';
 import { tripRoutes } from './routes/tripRoutes.js';
 import { driverRoutes } from './routes/driverRoutes.js';
+import { driverApplicationRoutes } from './routes/driverApplicationRoutes.js';
 import { locationRoutes } from './routes/locationRoutes.js';
 import { initSocketServer } from './sockets/socketServer.js';
 import { paymentRoutes } from './routes/paymentRoutes.js';
@@ -176,6 +177,7 @@ app.use('/api/maps', mapsRoutes());
 // Protected routes (authentication required)
 app.use('/api/trips', authMiddleware, tripRoutes());
 app.use('/api/drivers', authMiddleware, driverRoutes());
+app.use('/api/driver-application', authMiddleware, sensitiveLimiter, driverApplicationRoutes());
 app.use('/api/locations', authMiddleware, locationRoutes());
 app.use('/api/payments', authMiddleware, sensitiveLimiter, paymentRoutes());
 app.use('/api/notifications', authMiddleware, notificationRoutes());
@@ -187,10 +189,27 @@ setSocketIO(io);
 
 initSocketServer(io);
 
-httpServer.listen(env.port, '0.0.0.0', () => {
-  logger.info('RideFlow backend started', { 
-    port: env.port, 
-    host: '0.0.0.0',
-    healthCheck: `http://localhost:${env.port}/api/health`
+async function ensureRideColumns() {
+  const statements = [
+    'ALTER TABLE "Trip" ADD COLUMN IF NOT EXISTS "cancelReason" TEXT',
+    'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "rideTier" TEXT DEFAULT \'standard\'',
+    'ALTER TABLE "Trip" ADD COLUMN IF NOT EXISTS "rideClass" TEXT DEFAULT \'standard\'',
+  ];
+  for (const sql of statements) {
+    try {
+      await prisma.$executeRawUnsafe(sql);
+    } catch (error) {
+      logger.warn('Schema ensure failed', { error: error.message });
+    }
+  }
+}
+
+ensureRideColumns().finally(() => {
+  httpServer.listen(env.port, '0.0.0.0', () => {
+    logger.info('RideFlow backend started', { 
+      port: env.port, 
+      host: '0.0.0.0',
+      healthCheck: `http://localhost:${env.port}/api/health`
+    });
   });
 });

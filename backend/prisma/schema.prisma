@@ -52,6 +52,8 @@ model Driver {
   status          String   @default("pending") // pending, approved, rejected
   // car | motorcycle — used to match drivers with the right trip requests
   vehicleCategory String   @default("car")
+  // standard drivers only get ordinary car trips. comfort drivers get every car trip.
+  rideTier        String   @default("standard")
   licensePhotoUrl String?
   carPhotoUrl     String?
   walletBalance   Float    @default(0.0)
@@ -104,10 +106,12 @@ model Trip {
   dropoffLat      Float
   dropoffLng      Float
   status          String   @default("requested")
+  cancelReason    String?
   fareEstimate    Float
   finalFare       Float?
   distanceKm      Float?
   vehicleType     String   @default("car") // car | motorcycle
+  rideClass       String   @default("standard") // standard | comfort | travel
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

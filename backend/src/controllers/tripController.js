@@ -95,7 +95,7 @@ class TripController {
 
   async cancelTrip(req, res) {
     try {
-      const ride = await tripService.cancelTrip(req.params.id);
+      const ride = await tripService.cancelTrip(req.params.id, req.body?.reason);
       return res.status(200).json({ message: 'Trip cancelled', ride });
     } catch (error) {
       return res.status(400).json({ message: error.message });

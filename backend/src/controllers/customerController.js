@@ -7,6 +7,7 @@ export const customerController = {
     try {
       const userId = req.user?.id || req.user?.userId;
 
+      const light = req.query.light === '1';
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -14,9 +15,9 @@ export const customerController = {
           name: true,
           phone: true,
           email: true,
-          profileImage: true,
           walletBalance: true,
           createdAt: true,
+          ...(light ? {} : { profileImage: true }),
         },
       });
 

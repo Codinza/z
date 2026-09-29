@@ -123,15 +123,50 @@ export const getPendingDrivers = async (req, res) => {
 export const approveDriver = async (req, res) => {
   try {
     const { id } = req.params;
+    const existing = await prisma.driver.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: 'Driver not found' });
+    const isMoto = String(existing.vehicleCategory || '').toLowerCase() === 'motorcycle';
+    const rideTier = isMoto
+      ? 'standard'
+      : (String(req.body?.rideTier || 'standard').toLowerCase() === 'comfort'
+        ? 'comfort'
+        : 'standard');
     const driver = await prisma.driver.update({
       where: { id },
-      data: { status: 'approved' },
+      data: { status: 'approved', rideTier },
       include: { user: true },
+    });
+    // Customers who applied from inside the app become captains on approval.
+    await prisma.user.updateMany({
+      where: { id: existing.userId, role: 'customer' },
+      data: { role: 'driver' },
     });
     res.json({ message: 'Driver approved successfully', driver });
   } catch (error) {
     logger.error('Failed to approve driver', { error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to approve driver' });
+  }
+};
+
+export const setDriverRideTier = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await prisma.driver.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: 'Driver not found' });
+    if (String(existing.vehicleCategory || '').toLowerCase() === 'motorcycle') {
+      return res.status(400).json({ error: 'تصنيف الراحة للعربيات فقط' });
+    }
+    const rideTier = String(req.body?.rideTier || '').toLowerCase() === 'comfort'
+      ? 'comfort'
+      : 'standard';
+    const driver = await prisma.driver.update({
+      where: { id },
+      data: { rideTier },
+    });
+    res.json({ message: 'Ride tier updated', driver });
+  } catch (error) {
+    logger.error('Failed to set ride tier', { error: error.message });
+    res.status(500).json({ error: 'Failed to set ride tier' });
   }
 };
 
@@ -196,6 +231,9 @@ export const createApprovedDriver = async (req, res) => {
           userId: user.id,
           status: 'approved',
           vehicleCategory: category,
+          rideTier: category === 'motorcycle'
+            ? 'standard'
+            : (String(req.body.rideTier || '').toLowerCase() === 'comfort' ? 'comfort' : 'standard'),
         },
       });
 
@@ -269,6 +307,8 @@ export const getAllDrivers = async (req, res) => {
           String(d.vehicleCategory || '').toLowerCase() === 'motorcycle'
             ? 'motorcycle'
             : 'car',
+        rideTier:
+          String(d.rideTier || '').toLowerCase() === 'comfort' ? 'comfort' : 'standard',
         walletBalance: Number(d.walletBalance ?? 0),
         car: d.car
           ? {
@@ -641,6 +681,30 @@ export const getAdminStats = async (req, res) => {
 
     // Trip stats from DB + live memory
     const tripStats = await tripService.getTripStats();
+    let recentCancellations = Array.isArray(tripStats.recentCancellations)
+      ? tripStats.recentCancellations
+      : [];
+    try {
+      const cancelledOrders = await prisma.order.findMany({
+        where: { status: 'CANCELLED', rejectionReason: { not: null } },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+        include: { customer: { select: { name: true } } },
+      });
+      const orderRows = cancelledOrders
+        .filter((order) => order.rejectionReason)
+        .map((order) => ({
+          name: order.customer?.name || 'عميل',
+          reason: order.rejectionReason,
+          kind: order.serviceType === 'SHIPPING' ? 'شحن' : 'طلب',
+          route: [order.shippingPickupAddress, order.shippingDropoffAddress]
+            .filter(Boolean)
+            .join(' ← '),
+        }));
+      recentCancellations = [...orderRows, ...recentCancellations].slice(0, 20);
+    } catch (error) {
+      logger.warn('Cancelled orders unavailable', { error: error.message });
+    }
 
     // Online drivers from socket server
     const onlineDriversCount = getOnlineDriversCount();
@@ -673,6 +737,7 @@ export const getAdminStats = async (req, res) => {
 
       // Trip stats (from in-memory store)
       ...tripStats,
+      recentCancellations,
     });
   } catch (error) {
     logger.error('Failed to fetch admin stats', { error: error.message, stack: error.stack });

@@ -3,7 +3,7 @@ import { calculateDistanceKm, estimateFare, getSurgeMultiplier, calculateDriverO
 import { tripRepository } from '../repositories/tripRepository.js';
 import { driverRepository } from '../repositories/driverRepository.js';
 import { prisma } from '../db/prisma.js';
-import logger from '../utils/logger.js';
+import { driverMatchesRide, normalizeRideClass } from './rideMatch.js';
 
 // Global socket.io instance (will be set from app.js)
 let io = null;
@@ -198,6 +198,7 @@ class TripService {
             String(trip.vehicleType || '').toLowerCase() === 'motorcycle'
               ? 'motorcycle'
               : 'car',
+          rideClass: normalizeRideClass(trip),
           userName: rawName,
           // Hide phone for pending trips (only visible once accepted)
           userPhone: isAccepted ? rawPhone : null,
@@ -356,6 +357,12 @@ class TripService {
 
     const normalizedVehicleType =
       String(vehicleType || '').toLowerCase() === 'motorcycle' ? 'motorcycle' : 'car';
+    const requestedClass = String(payload.rideClass || '').toLowerCase();
+    const rideClass = normalizedVehicleType === 'motorcycle'
+      ? 'standard'
+      : (requestedClass === 'comfort' || requestedClass === 'travel' || requestedClass === 'standard'
+        ? requestedClass
+        : (String(tripType || '').toLowerCase() === 'intercity' ? 'travel' : 'standard'));
 
     const ride = {
       id: tripId,
@@ -371,6 +378,7 @@ class TripService {
       dropoffLng,
       areaType,
       vehicleType: normalizedVehicleType,
+      rideClass,
       tripType,
       notes,
       status: 'draft',
@@ -405,9 +413,33 @@ class TripService {
         distanceKm: ride.distanceKm,
         finalFare: ride.finalFare,
         vehicleType: ride.vehicleType,
+        rideClass: ride.rideClass,
       });
     } catch (error) {
-      logger.warn('Trip persisted in memory only because Prisma storage is unavailable', { error: error.message });
+      logger.warn('Trip save with ride class failed, retrying without it', {
+        error: error.message,
+      });
+      try {
+        await tripRepository.createTrip({
+          id: ride.id,
+          userId: ride.userId,
+          pickupAddress: ride.pickupAddress,
+          dropoffAddress: ride.dropoffAddress,
+          pickupLat: ride.pickupLat,
+          pickupLng: ride.pickupLng,
+          dropoffLat: ride.dropoffLat,
+          dropoffLng: ride.dropoffLng,
+          status: ride.status,
+          fareEstimate: ride.fareEstimate,
+          distanceKm: ride.distanceKm,
+          finalFare: ride.finalFare,
+          vehicleType: ride.vehicleType,
+        });
+      } catch (retryError) {
+        logger.warn('Trip persisted in memory only because Prisma storage is unavailable', {
+          error: retryError.message,
+        });
+      }
     }
 
     return ride;
@@ -442,7 +474,8 @@ class TripService {
       const driverSockets = await io.in('drivers').fetchSockets();
       for (const sock of driverSockets) {
         const category = sock.data?.vehicleCategory || 'car';
-        if (category === ride.vehicleType) {
+        const rideTier = sock.data?.rideTier || 'standard';
+        if (driverMatchesRide(ride, category, rideTier)) {
           sock.emit('trip_request', tripRequestPayload);
         }
       }
@@ -768,7 +801,7 @@ class TripService {
     return { ride, assignment };
   }
 
-  async cancelTrip(rideId) {
+  async cancelTrip(rideId, reason) {
     const ride = rides.get(rideId);
     if (!ride) throw new Error('Ride not found');
 
@@ -776,9 +809,34 @@ class TripService {
       throw new Error('This trip cannot be cancelled after it has started.');
     }
 
+    const cleanReason = reason ? String(reason).trim().slice(0, 200) : '';
     ride.status = 'cancelled';
+    ride.cancelReason = cleanReason || null;
     ride.updatedAt = new Date().toISOString();
     await refundCommissionOnCancel(ride);
+
+    try {
+      await prisma.trip.update({
+        where: { id: rideId },
+        data: {
+          status: 'cancelled',
+          cancelReason: ride.cancelReason,
+        },
+      });
+    } catch (error) {
+      logger.warn('Trip cancel DB update skipped: ' + error.message);
+    }
+
+    if (io) {
+      io.emit('trip_status_changed', {
+        rideId,
+        tripId: rideId,
+        status: 'cancelled',
+        driverId: ride.driverId,
+        reason: ride.cancelReason,
+      });
+    }
+
     return ride;
   }
 
@@ -1276,6 +1334,9 @@ class TripService {
           status: trip.status,
           finalFare: trip.finalFare,
           fareEstimate: trip.fareEstimate,
+          cancelReason: trip.cancelReason || null,
+          pickupAddress: trip.pickupAddress,
+          dropoffAddress: trip.dropoffAddress,
         });
       }
     } catch (error) {
@@ -1284,6 +1345,7 @@ class TripService {
 
     // Live in-memory rides override DB rows (same id) for freshest status
     for (const ride of rides.values()) {
+      const previous = byId.get(ride.id);
       byId.set(ride.id, {
         id: ride.id,
         userId: ride.userId,
@@ -1293,6 +1355,9 @@ class TripService {
         status: ride.status,
         finalFare: ride.finalFare,
         fareEstimate: ride.fareEstimate,
+        cancelReason: ride.cancelReason || previous?.cancelReason || null,
+        pickupAddress: ride.pickupAddress || previous?.pickupAddress,
+        dropoffAddress: ride.dropoffAddress || previous?.dropoffAddress,
       });
     }
 
@@ -1347,6 +1412,15 @@ class TripService {
       activeTrips: allRides.filter((r) => activeStatuses.has(r.status)).length,
       completedTrips: allRides.filter((r) => r.status === 'completed').length,
       cancelledTrips: allRides.filter((r) => r.status === 'cancelled').length,
+      recentCancellations: allRides
+        .filter((r) => r.status === 'cancelled' && r.cancelReason)
+        .slice(0, 20)
+        .map((r) => ({
+          name: r.userName || 'عميل',
+          reason: r.cancelReason,
+          kind: 'رحلة',
+          route: [r.pickupAddress, r.dropoffAddress].filter(Boolean).join(' ← '),
+        })),
       customersWhoOrdered: Object.keys(customerOrders).length,
       driverEarnings: Object.values(driverEarnings).sort(
         (a, b) => b.totalEarnings - a.totalEarnings
