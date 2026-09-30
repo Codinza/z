@@ -12,7 +12,10 @@ const PURPOSE = 'LOGIN';
 const CODE_ONLY_ROLES = ['admin', 'super_admin'];
 // Customers sign in with the phone alone; admins must also prove the number
 // with a WhatsApp code. Captains/companies have their own apps.
-const isAllowedRole = (role) => role === 'customer' || CODE_ONLY_ROLES.includes(role);
+// One app for everyone: approved captains enter the same way customers do and
+// land on the captain screens. Only companies keep their own app.
+const NO_CODE_ROLES = ['customer', 'driver'];
+const isAllowedRole = (role) => NO_CODE_ROLES.includes(role) || CODE_ONLY_ROLES.includes(role);
 const DEFAULT_CUSTOMER_NAME = 'عميل Zoon';
 
 function generateTokens(user) {
@@ -60,8 +63,20 @@ function otpFailure(result) {
   }
 }
 
-function sessionPayload(user, isNew) {
+async function sessionPayload(user, isNew) {
   const tokens = generateTokens(user);
+  let driver = null;
+  if (user.role === 'driver') {
+    driver = await prisma.driver.findUnique({ where: { userId: user.id } });
+  }
+  const driverInfo = driver
+    ? {
+        id: driver.id,
+        status: driver.status,
+        vehicleCategory: driver.vehicleCategory || 'car',
+        walletBalance: Number(driver.walletBalance ?? 0),
+      }
+    : null;
   return {
     message: isNew ? 'تم إنشاء الحساب' : 'تم تسجيل الدخول',
     isNew,
@@ -72,12 +87,12 @@ function sessionPayload(user, isNew) {
       email: user.email,
       role: user.role,
       phoneVerified: true,
-      driverStatus: null,
-      vehicleCategory: null,
-      driverId: null,
-      walletBalance: null,
+      driverStatus: driverInfo?.status ?? null,
+      vehicleCategory: driverInfo?.vehicleCategory ?? null,
+      driverId: driverInfo?.id ?? null,
+      walletBalance: driverInfo?.walletBalance ?? null,
     },
-    driver: null,
+    driver: driverInfo,
     ...tokens,
   };
 }
@@ -106,9 +121,9 @@ export const startPhoneSignIn = async (req, res) => {
       });
     }
 
-    // Already-registered customers sign straight in, no code.
-    if (existing && existing.role === 'customer') {
-      return res.json(sessionPayload(existing, false));
+    // Already-registered customers and captains sign straight in, no code.
+    if (existing && NO_CODE_ROLES.includes(existing.role)) {
+      return res.json(await sessionPayload(existing, false));
     }
 
     // New numbers (and admins) are confirmed by Firebase Phone Auth when it is set up.
@@ -279,7 +294,7 @@ export const firebasePhoneSignIn = async (req, res) => {
       });
     }
 
-    res.json(sessionPayload(user, isNew));
+    res.json(await sessionPayload(user, isNew));
   } catch (error) {
     if (error?.code === 'P2002') {
       return res.status(409).json({ error: 'الرقم ده مسجل بالفعل. جرّب تاني.' });
