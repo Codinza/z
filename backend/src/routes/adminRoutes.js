@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getPendingDrivers,
   getAllDrivers,
+  getDriverDetails,
   updateDriverStatus,
   adjustDriverWallet,
   approveDriver,
@@ -39,6 +40,7 @@ export const adminRoutes = () => {
   // Drivers Management
   router.get('/drivers', getAllDrivers);
   router.get('/drivers/pending', getPendingDrivers);
+  router.get('/drivers/:id', getDriverDetails);
   router.post('/drivers/create', createApprovedDriver);
   router.patch('/drivers/:id/status', updateDriverStatus);
   router.post('/drivers/:id/wallet', adjustDriverWallet);

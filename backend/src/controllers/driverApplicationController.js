@@ -40,7 +40,16 @@ export const submitDriverApplication = async (req, res) => {
       plateNumber,
       licensePhotoUrl,
       carPhotoUrl,
+      workType,
+      birthDate,
+      address,
     } = req.body || {};
+
+    const cleanWorkType = ['city', 'courier', 'travel'].includes(String(workType))
+      ? String(workType)
+      : 'city';
+    const cleanBirthDate = String(birthDate || '').trim().slice(0, 20) || null;
+    const cleanAddress = String(address || '').trim().slice(0, 300) || null;
 
     const category =
       String(vehicleCategory || '').toLowerCase() === 'motorcycle'
@@ -91,6 +100,9 @@ export const submitDriverApplication = async (req, res) => {
         update: {
           status: 'pending',
           vehicleCategory: category,
+          workType: cleanWorkType,
+          birthDate: cleanBirthDate,
+          address: cleanAddress,
           ...(licensePhotoUrl ? { licensePhotoUrl } : {}),
           ...(carPhotoUrl ? { carPhotoUrl } : {}),
         },
@@ -98,6 +110,9 @@ export const submitDriverApplication = async (req, res) => {
           userId,
           status: 'pending',
           vehicleCategory: category,
+          workType: cleanWorkType,
+          birthDate: cleanBirthDate,
+          address: cleanAddress,
           licensePhotoUrl: licensePhotoUrl || null,
           carPhotoUrl: carPhotoUrl || null,
         },

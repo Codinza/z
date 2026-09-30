@@ -56,6 +56,10 @@ model Driver {
   rideTier        String   @default("standard")
   licensePhotoUrl String?
   carPhotoUrl     String?
+  // city | courier | travel — what the captain applied to do
+  workType        String?
+  birthDate       String?
+  address         String?
   walletBalance   Float    @default(0.0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

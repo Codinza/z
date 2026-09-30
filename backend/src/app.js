@@ -194,6 +194,9 @@ async function ensureRideColumns() {
     'ALTER TABLE "Trip" ADD COLUMN IF NOT EXISTS "cancelReason" TEXT',
     'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "rideTier" TEXT DEFAULT \'standard\'',
     'ALTER TABLE "Trip" ADD COLUMN IF NOT EXISTS "rideClass" TEXT DEFAULT \'standard\'',
+    'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "workType" TEXT',
+    'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "birthDate" TEXT',
+    'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "address" TEXT',
   ];
   for (const sql of statements) {
     try {

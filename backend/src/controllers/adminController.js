@@ -120,6 +120,73 @@ export const getPendingDrivers = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/admin/drivers/:id
+ * Everything the captain submitted, including the photos.
+ */
+export const getDriverDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const driver = await prisma.driver.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            profileImage: true,
+            createdAt: true,
+          },
+        },
+        car: true,
+      },
+    });
+    if (!driver) return res.status(404).json({ error: 'الكابتن غير موجود' });
+
+    res.json({
+      driver: {
+        id: driver.id,
+        status: driver.status,
+        vehicleCategory:
+          String(driver.vehicleCategory || '').toLowerCase() === 'motorcycle'
+            ? 'motorcycle'
+            : 'car',
+        workType: driver.workType || null,
+        rideTier: driver.rideTier,
+        birthDate: driver.birthDate || null,
+        address: driver.address || null,
+        walletBalance: Number(driver.walletBalance ?? 0),
+        createdAt: driver.createdAt,
+        profileImage: driver.user?.profileImage || null,
+        licensePhotoUrl: driver.licensePhotoUrl || null,
+        carPhotoUrl: driver.carPhotoUrl || null,
+        user: driver.user
+          ? {
+              id: driver.user.id,
+              name: driver.user.name,
+              phone: driver.user.phone,
+              email: driver.user.email,
+              createdAt: driver.user.createdAt,
+            }
+          : null,
+        car: driver.car
+          ? {
+              model: driver.car.model,
+              color: driver.car.color,
+              year: driver.car.year,
+              plateNumber: driver.car.plateNumber,
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to fetch driver details', { error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'تعذّر تحميل بيانات الكابتن' });
+  }
+};
+
 export const approveDriver = async (req, res) => {
   try {
     const { id } = req.params;
@@ -310,6 +377,8 @@ export const getAllDrivers = async (req, res) => {
         rideTier:
           String(d.rideTier || '').toLowerCase() === 'comfort' ? 'comfort' : 'standard',
         walletBalance: Number(d.walletBalance ?? 0),
+        workType: d.workType || null,
+        hasDocuments: Boolean(d.licensePhotoUrl || d.carPhotoUrl),
         car: d.car
           ? {
               model: d.car.model,
