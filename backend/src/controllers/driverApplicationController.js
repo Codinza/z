@@ -40,6 +40,9 @@ export const submitDriverApplication = async (req, res) => {
       plateNumber,
       licensePhotoUrl,
       carPhotoUrl,
+      carSidePhotoUrl,
+      idFrontPhotoUrl,
+      idBackPhotoUrl,
       workType,
       birthDate,
       address,
@@ -128,6 +131,9 @@ export const submitDriverApplication = async (req, res) => {
           address: cleanAddress,
           ...(licensePhotoUrl ? { licensePhotoUrl } : {}),
           ...(carPhotoUrl ? { carPhotoUrl } : {}),
+          ...(carSidePhotoUrl ? { carSidePhotoUrl } : {}),
+          ...(idFrontPhotoUrl ? { idFrontPhotoUrl } : {}),
+          ...(idBackPhotoUrl ? { idBackPhotoUrl } : {}),
         },
         create: {
           userId,
@@ -138,6 +144,9 @@ export const submitDriverApplication = async (req, res) => {
           address: cleanAddress,
           licensePhotoUrl: licensePhotoUrl || null,
           carPhotoUrl: carPhotoUrl || null,
+          carSidePhotoUrl: carSidePhotoUrl || null,
+          idFrontPhotoUrl: idFrontPhotoUrl || null,
+          idBackPhotoUrl: idBackPhotoUrl || null,
         },
       });
       await tx.car.upsert({

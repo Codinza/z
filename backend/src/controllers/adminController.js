@@ -162,6 +162,9 @@ export const getDriverDetails = async (req, res) => {
         profileImage: driver.user?.profileImage || null,
         licensePhotoUrl: driver.licensePhotoUrl || null,
         carPhotoUrl: driver.carPhotoUrl || null,
+        carSidePhotoUrl: driver.carSidePhotoUrl || null,
+        idFrontPhotoUrl: driver.idFrontPhotoUrl || null,
+        idBackPhotoUrl: driver.idBackPhotoUrl || null,
         user: driver.user
           ? {
               id: driver.user.id,
@@ -378,7 +381,7 @@ export const getAllDrivers = async (req, res) => {
           String(d.rideTier || '').toLowerCase() === 'comfort' ? 'comfort' : 'standard',
         walletBalance: Number(d.walletBalance ?? 0),
         workType: d.workType || null,
-        hasDocuments: Boolean(d.licensePhotoUrl || d.carPhotoUrl),
+        hasDocuments: Boolean(d.licensePhotoUrl || d.carPhotoUrl || d.idFrontPhotoUrl),
         car: d.car
           ? {
               model: d.car.model,

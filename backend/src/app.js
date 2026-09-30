@@ -52,6 +52,9 @@ app.use((req, res, next) => {
     'profileImage',
     'licensePhotoUrl',
     'carPhotoUrl',
+    'carSidePhotoUrl',
+    'idFrontPhotoUrl',
+    'idBackPhotoUrl',
   ]);
 
   let safeBody;
@@ -197,6 +200,9 @@ async function ensureRideColumns() {
     'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "workType" TEXT',
     'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "birthDate" TEXT',
     'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "address" TEXT',
+    'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "carSidePhotoUrl" TEXT',
+    'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "idFrontPhotoUrl" TEXT',
+    'ALTER TABLE "Driver" ADD COLUMN IF NOT EXISTS "idBackPhotoUrl" TEXT',
   ];
   for (const sql of statements) {
     try {
