@@ -9,12 +9,13 @@ import logger from '../utils/logger.js';
 import { isFirebaseAuthEnabled, verifyFirebaseIdToken } from '../utils/firebaseToken.js';
 
 const PURPOSE = 'LOGIN';
-const CODE_ONLY_ROLES = ['admin', 'super_admin'];
+// Captains (wallet balance) and admins must prove the number with a code.
+const CODE_ONLY_ROLES = ['admin', 'super_admin', 'driver'];
 // Customers sign in with the phone alone; admins must also prove the number
 // with a WhatsApp code. Captains/companies have their own apps.
-// One app for everyone: approved captains enter the same way customers do and
+// One app for everyone: approved captains sign in here too (with a code) and
 // land on the captain screens. Only companies keep their own app.
-const NO_CODE_ROLES = ['customer', 'driver'];
+const NO_CODE_ROLES = ['customer'];
 const isAllowedRole = (role) => NO_CODE_ROLES.includes(role) || CODE_ONLY_ROLES.includes(role);
 const DEFAULT_CUSTOMER_NAME = 'عميل Zoon';
 
@@ -212,25 +213,7 @@ export const verifyPhoneSignIn = async (req, res) => {
       });
     }
 
-    const tokens = generateTokens(user);
-    res.json({
-      message: isNew ? 'تم إنشاء الحساب' : 'تم تسجيل الدخول',
-      isNew,
-      user: {
-        id: user.id,
-        name: user.name,
-        phone: user.phone,
-        email: user.email,
-        role: user.role,
-        phoneVerified: true,
-        driverStatus: null,
-        vehicleCategory: null,
-        driverId: null,
-        walletBalance: null,
-      },
-      driver: null,
-      ...tokens,
-    });
+    res.json(await sessionPayload(user, isNew));
   } catch (error) {
     if (error?.code === 'P2002') {
       return res.status(409).json({ error: 'الرقم ده مسجل بالفعل. جرّب تاني.' });
