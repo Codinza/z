@@ -19,6 +19,15 @@ class TripController {
     return res.json({ trip });
   }
 
+  async getDriverProfile(req, res) {
+    try {
+      const profile = await tripService.getTripDriverProfile(req.params.id, req.user);
+      return res.json({ driver: profile });
+    } catch (error) {
+      return res.status(error.status || 400).json({ message: error.message });
+    }
+  }
+
   async requestTrip(req, res) {
     try {
       const payload = { ...req.body, userId: req.user?.id };

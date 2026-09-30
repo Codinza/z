@@ -289,6 +289,7 @@ class TripService {
 
         trip.driver = {
           id: driverRecord?.id ?? trip.driverId,
+          userId: driverRecord?.userId ?? null,
           name: driverRecord?.user?.name ?? trip.driverName ?? 'كابتن زوون',
           phone: trip.status === 'pending' ? null : (driverRecord?.user?.phone ?? trip.driverPhone ?? ''),
           profileImage: dImage,
@@ -310,6 +311,63 @@ class TripService {
     }
 
     return trip;
+  }
+
+  /** Public captain profile shown to the customer of this trip. */
+  async getTripDriverProfile(tripId, requester = null) {
+    let driverKey = rides.get(tripId)?.driverId ?? null;
+    let ownerId = rides.get(tripId)?.userId ?? null;
+    if (!driverKey || !ownerId) {
+      const stored = await tripRepository.getTripById(tripId);
+      driverKey = driverKey ?? stored?.driverId ?? null;
+      ownerId = ownerId ?? stored?.userId ?? null;
+    }
+    if (!driverKey) throw new Error('لسه مفيش كابتن على الرحلة دي');
+
+    const isStaff = ['admin', 'super_admin'].includes(requester?.role);
+    if (requester?.id && ownerId && requester.id !== ownerId && !isStaff) {
+      const err = new Error('غير مسموح');
+      err.status = 403;
+      throw err;
+    }
+
+    const driver = await prisma.driver.findFirst({
+      where: { OR: [{ id: driverKey }, { userId: driverKey }] },
+      include: {
+        user: { select: { name: true, profileImage: true, createdAt: true } },
+        car: true,
+      },
+    });
+    if (!driver) throw new Error('الكابتن غير موجود');
+
+    const { driverService } = await import('./driverService.js');
+    const ratings = await driverService.getDriverRatings(driver.id);
+    const completedTrips = await prisma.trip
+      .count({ where: { driverId: driver.id, status: 'completed' } })
+      .catch(() => 0);
+
+    return {
+      id: driver.id,
+      name: driver.user?.name ?? 'كابتن زوون',
+      profileImage: driver.user?.profileImage ?? null,
+      memberSince: driver.user?.createdAt ?? driver.createdAt,
+      vehicleCategory: driver.vehicleCategory,
+      completedTrips,
+      car: driver.car
+        ? {
+            model: driver.car.model,
+            color: driver.car.color,
+            year: driver.car.year,
+            plateNumber: driver.car.plateNumber,
+          }
+        : null,
+      carPhotoUrl: driver.carPhotoUrl ?? null,
+      carSidePhotoUrl: driver.carSidePhotoUrl ?? null,
+      rating: ratings.averageRating,
+      totalRatings: ratings.totalRatings,
+      breakdown: ratings.breakdown,
+      reviews: (ratings.ratings || []).slice(0, 30),
+    };
   }
 
   async createTripRequest(payload) {
@@ -771,9 +829,27 @@ class TripService {
   }
 
   async startTrip(rideId) {
-    const ride = rides.get(rideId);
-    const assignment = assignments.get(rideId);
-    if (!ride || !assignment) throw new Error('Ride or assignment not found');
+    let ride = rides.get(rideId);
+    if (!ride) {
+      // The server may have restarted (in-memory maps are empty): reload from DB.
+      const stored = await tripRepository.getTripById(rideId);
+      if (stored) {
+        ride = { ...stored };
+        rides.set(rideId, ride);
+      }
+    }
+    if (!ride) throw new Error('Ride not found');
+
+    let assignment = assignments.get(rideId);
+    if (!assignment) {
+      assignment = {
+        id: `assignment_${Date.now()}`,
+        rideRequestId: rideId,
+        driverId: ride.driverId || 'unknown',
+        status: 'accepted',
+      };
+      assignments.set(rideId, assignment);
+    }
 
     ride.status = 'started';
     ride.updatedAt = new Date().toISOString();
@@ -782,10 +858,12 @@ class TripService {
     assignment.updatedAt = new Date().toISOString();
 
     try {
-      await tripRepository.updateAssignment(rideId, {
-        status: assignment.status,
-        startedAt: new Date(assignment.startedAt),
-      });
+      await tripRepository.updateTripStatus(
+        rideId,
+        'started',
+        ride.driverId,
+        ride.finalFare ?? ride.fareEstimate,
+      );
     } catch (error) {
       logger.warn('Trip start update skipped because Prisma storage is unavailable', { error: error.message });
     }
