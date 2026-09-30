@@ -188,9 +188,96 @@ async function sendViaWhatsApp(phone, message, { code } = {}) {
   throw err;
 }
 
+/** Twilio Programmable SMS. Needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM (or a messaging service). */
+async function sendViaTwilio(phone, message) {
+  const sid = env.twilioAccountSid;
+  const authToken = env.twilioAuthToken;
+  if (!sid || !authToken || (!env.twilioFrom && !env.twilioMessagingServiceSid)) {
+    throw new Error(
+      'Twilio is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM.'
+    );
+  }
+
+  const params = new URLSearchParams({ To: toE164(phone), Body: message });
+  if (env.twilioMessagingServiceSid) {
+    params.set('MessagingServiceSid', env.twilioMessagingServiceSid);
+  } else {
+    params.set('From', env.twilioFrom);
+  }
+
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${sid}:${authToken}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    }
+  );
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const detail = body?.message || `HTTP ${response.status}`;
+    logger.error('Twilio SMS failed', {
+      to: maskPhone(phone),
+      status: response.status,
+      detail,
+      errorCode: body?.code,
+    });
+    const err = new Error(`SMS send failed: ${detail}`);
+    err.smsDetail = detail;
+    throw err;
+  }
+
+  logger.info('Twilio SMS sent', { to: maskPhone(phone), sid: body?.sid });
+  return { provider: 'twilio', delivered: true, channel: 'sms', messageId: body?.sid };
+}
+
+/** SMS Misr (Egypt). Needs SMSMISR_USERNAME, SMSMISR_PASSWORD and SMSMISR_SENDER. */
+async function sendViaSmsMisr(phone, message) {
+  if (!env.smsMisrUsername || !env.smsMisrPassword || !env.smsMisrSender) {
+    throw new Error(
+      'SMS Misr is not configured. Set SMSMISR_USERNAME, SMSMISR_PASSWORD and SMSMISR_SENDER.'
+    );
+  }
+
+  const params = new URLSearchParams({
+    environment: env.smsMisrEnvironment,
+    username: env.smsMisrUsername,
+    password: env.smsMisrPassword,
+    language: '2', // Arabic (unicode) message body
+    sender: env.smsMisrSender,
+    mobile: toE164(phone).replace(/\D/g, ''),
+    message,
+  });
+
+  const response = await fetch('https://smsmisr.com/api/SMS/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+  const body = await response.json().catch(() => ({}));
+
+  // SMS Misr answers HTTP 200 with a code; 1901 means the message was accepted.
+  if (!response.ok || String(body?.code) !== '1901') {
+    const detail = body?.message || `HTTP ${response.status} code=${body?.code}`;
+    logger.error('SMS Misr failed', { to: maskPhone(phone), detail, code: body?.code });
+    const err = new Error(`SMS send failed: ${detail}`);
+    err.smsDetail = detail;
+    throw err;
+  }
+
+  logger.info('SMS Misr sent', { to: maskPhone(phone) });
+  return { provider: 'smsmisr', delivered: true, channel: 'sms' };
+}
+
 const providers = {
   console: sendViaConsole,
   whatsapp: sendViaWhatsApp,
+  twilio: sendViaTwilio,
+  smsmisr: sendViaSmsMisr,
 };
 
 export function isDevSmsProvider() {
@@ -198,7 +285,9 @@ export function isDevSmsProvider() {
 }
 
 export function getDeliveryChannel() {
-  return env.smsProvider === 'whatsapp' ? 'whatsapp' : 'console';
+  if (env.smsProvider === 'whatsapp') return 'whatsapp';
+  if (env.smsProvider === 'twilio' || env.smsProvider === 'smsmisr') return 'sms';
+  return 'console';
 }
 
 /**

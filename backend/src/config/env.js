@@ -42,7 +42,28 @@ export const env = {
   paymobApiKey: process.env.PAYMOB_API_KEY || '',
   paymobIntegrationId: process.env.PAYMOB_INTEGRATION_ID || '',
   paymobWalletIntegrationId: process.env.PAYMOB_WALLET_INTEGRATION_ID || '',
-  smsProvider: process.env.SMS_PROVIDER || (process.env.WHATSAPP_TOKEN ? 'whatsapp' : 'console'),
+  smsProvider:
+    process.env.SMS_PROVIDER ||
+    (process.env.TWILIO_ACCOUNT_SID
+      ? 'twilio'
+      : process.env.SMSMISR_USERNAME
+        ? 'smsmisr'
+        : process.env.WHATSAPP_TOKEN
+          ? 'whatsapp'
+          : 'console'),
+  // Firebase project id (public, not a secret). When set, new numbers are
+  // verified with Firebase Phone Auth instead of a code we send ourselves.
+  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || 'zoon-c7b8f',
+  twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || '',
+  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || '',
+  // Either a sender number (TWILIO_FROM) or a Messaging Service SID.
+  twilioFrom: process.env.TWILIO_FROM || '',
+  twilioMessagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID || '',
+  smsMisrUsername: process.env.SMSMISR_USERNAME || '',
+  smsMisrPassword: process.env.SMSMISR_PASSWORD || '',
+  smsMisrSender: process.env.SMSMISR_SENDER || '',
+  // 1 = live, 2 = test
+  smsMisrEnvironment: process.env.SMSMISR_ENVIRONMENT || '1',
   smsSenderId: process.env.SMS_SENDER_ID || 'Zoon',
   otpExpiryMinutes: Number(process.env.OTP_EXPIRY_MINUTES || 10),
   otpMaxAttempts: Number(process.env.OTP_MAX_ATTEMPTS || 5),

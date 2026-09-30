@@ -13,6 +13,7 @@ import {
 import {
   startPhoneSignIn,
   verifyPhoneSignIn,
+  firebasePhoneSignIn,
 } from '../controllers/phoneAuthController.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { otpSendLimiter, otpVerifyLimiter } from '../middlewares/rateLimiter.js';
@@ -25,6 +26,7 @@ export const authRoutes = () => {
   router.post('/resend-code', otpSendLimiter, resendVerificationCode);
   router.post('/phone/start', otpSendLimiter, startPhoneSignIn);
   router.post('/phone/verify', otpVerifyLimiter, verifyPhoneSignIn);
+  router.post('/phone/firebase', otpVerifyLimiter, firebasePhoneSignIn);
   router.post('/login', login);
   router.post('/guest', guestLogin);
   router.post('/refresh', refreshToken);
