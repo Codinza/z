@@ -43,7 +43,24 @@ export const submitDriverApplication = async (req, res) => {
       workType,
       birthDate,
       address,
+      email,
     } = req.body || {};
+
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cleanEmail)) {
+      return res.status(400).json({ error: 'الإيميل مش مكتوب صح' });
+    }
+    if (cleanEmail) {
+      const emailOwner = await prisma.user.findUnique({
+        where: { email: cleanEmail },
+        select: { id: true },
+      });
+      if (emailOwner && emailOwner.id !== userId) {
+        return res
+          .status(409)
+          .json({ error: 'الإيميل ده مستخدم في حساب تاني' });
+      }
+    }
 
     const cleanWorkType = ['city', 'courier', 'travel'].includes(String(workType))
       ? String(workType)
@@ -92,8 +109,14 @@ export const submitDriverApplication = async (req, res) => {
     }
 
     const driver = await prisma.$transaction(async (tx) => {
-      if (cleanName) {
-        await tx.user.update({ where: { id: userId }, data: { name: cleanName } });
+      if (cleanName || cleanEmail) {
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            ...(cleanName ? { name: cleanName } : {}),
+            ...(cleanEmail ? { email: cleanEmail } : {}),
+          },
+        });
       }
       const saved = await tx.driver.upsert({
         where: { userId },
